@@ -8,27 +8,48 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const SETTINGS_RESPONSE_HEADERS = {
-  "Cache-Control": "no-store"
+  "Cache-Control": "no-store",
 };
 
 // Secrets must never be mass-assigned from request body (CWE-915)
-const PROTECTED_SETTING_KEYS = ["password", "mitmSudoEncrypted"];
+const PROTECTED_SETTING_KEYS = [
+  "password",
+  "mitmSudoEncrypted",
+  "totpSecret",
+  "totpRecoveryCodes",
+  "totpEnabled",
+];
 
 export async function GET() {
   try {
     const settings = await getSettings();
-    const { password, oidcClientSecret, ...safeSettings } = settings;
-    safeSettings.oidcConfigured = !!(safeSettings.oidcIssuerUrl && safeSettings.oidcClientId && oidcClientSecret);
-    
+    const {
+      password,
+      oidcClientSecret,
+      totpSecret,
+      totpRecoveryCodes,
+      ...safeSettings
+    } = settings;
+    safeSettings.oidcConfigured = !!(
+      safeSettings.oidcIssuerUrl &&
+      safeSettings.oidcClientId &&
+      oidcClientSecret
+    );
+    safeSettings.totpEnabled = !!settings.totpEnabled;
+    safeSettings.username = settings.username || "admin";
+
     const enableRequestLogs = process.env.ENABLE_REQUEST_LOGS === "true";
     const enableTranslator = process.env.ENABLE_TRANSLATOR === "true";
-    
-    return NextResponse.json({ 
-      ...safeSettings, 
-      enableRequestLogs,
-      enableTranslator,
-      hasPassword: !!password
-    }, { headers: SETTINGS_RESPONSE_HEADERS });
+
+    return NextResponse.json(
+      {
+        ...safeSettings,
+        enableRequestLogs,
+        enableTranslator,
+        hasPassword: !!password,
+      },
+      { headers: SETTINGS_RESPONSE_HEADERS },
+    );
   } catch (error) {
     console.log("Error getting settings:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -50,17 +71,26 @@ export async function PATCH(request) {
       // Verify current password if it exists
       if (currentHash) {
         if (!body.currentPassword) {
-          return NextResponse.json({ error: "Current password required" }, { status: 400 });
+          return NextResponse.json(
+            { error: "Current password required" },
+            { status: 400 },
+          );
         }
         const isValid = await bcrypt.compare(body.currentPassword, currentHash);
         if (!isValid) {
-          return NextResponse.json({ error: "Invalid current password" }, { status: 401 });
+          return NextResponse.json(
+            { error: "Invalid current password" },
+            { status: 401 },
+          );
         }
       } else {
         // First time setting password, no current password needed
         // Allow empty currentPassword or default "123456"
         if (body.currentPassword && body.currentPassword !== "123456") {
-           return NextResponse.json({ error: "Invalid current password" }, { status: 401 });
+          return NextResponse.json(
+            { error: "Invalid current password" },
+            { status: 401 },
+          );
         }
       }
 
@@ -68,6 +98,17 @@ export async function PATCH(request) {
       body.password = await bcrypt.hash(body.newPassword, salt);
       delete body.newPassword;
       delete body.currentPassword;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(body, "username")) {
+      const cleanUser = String(body.username || "").trim();
+      if (!cleanUser) {
+        return NextResponse.json(
+          { error: "Username cannot be empty" },
+          { status: 400 },
+        );
+      }
+      body.username = cleanUser;
     }
 
     if (Object.prototype.hasOwnProperty.call(body, "oidcClientSecret")) {
@@ -90,7 +131,10 @@ export async function PATCH(request) {
     // Invalidate combo rotation state when strategy settings change
     if (
       Object.prototype.hasOwnProperty.call(body, "comboStrategy") ||
-      Object.prototype.hasOwnProperty.call(body, "comboStickyRoundRobinLimit") ||
+      Object.prototype.hasOwnProperty.call(
+        body,
+        "comboStickyRoundRobinLimit",
+      ) ||
       Object.prototype.hasOwnProperty.call(body, "comboStrategies")
     ) {
       resetComboRotation();
@@ -105,12 +149,28 @@ export async function PATCH(request) {
         .then(({ configureQuotaAutoPing }) => {
           configureQuotaAutoPing(settings);
         })
-        .catch((error) => console.warn("[AutoPing] settings update failed:", error.message));
+        .catch((error) =>
+          console.warn("[AutoPing] settings update failed:", error.message),
+        );
     }
 
-    const { password, oidcClientSecret, ...safeSettings } = settings;
-    safeSettings.oidcConfigured = !!(safeSettings.oidcIssuerUrl && safeSettings.oidcClientId && oidcClientSecret);
-    return NextResponse.json(safeSettings, { headers: SETTINGS_RESPONSE_HEADERS });
+    const {
+      password,
+      oidcClientSecret,
+      totpSecret,
+      totpRecoveryCodes,
+      ...safeSettings
+    } = settings;
+    safeSettings.oidcConfigured = !!(
+      safeSettings.oidcIssuerUrl &&
+      safeSettings.oidcClientId &&
+      oidcClientSecret
+    );
+    safeSettings.totpEnabled = !!settings.totpEnabled;
+    safeSettings.username = settings.username || "admin";
+    return NextResponse.json(safeSettings, {
+      headers: SETTINGS_RESPONSE_HEADERS,
+    });
   } catch (error) {
     console.log("Error updating settings:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });

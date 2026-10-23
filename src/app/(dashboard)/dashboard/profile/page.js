@@ -27,7 +27,11 @@ export default function ProfilePage() {
   const [isShuttingDown, setIsShuttingDown] = useState(false);
   const [settings, setSettings] = useState({ fallbackStrategy: "fill-first" });
   const [loading, setLoading] = useState(true);
-  const [passwords, setPasswords] = useState({ current: "", new: "", confirm: "" });
+  const [passwords, setPasswords] = useState({
+    current: "",
+    new: "",
+    confirm: "",
+  });
   const [passStatus, setPassStatus] = useState({ type: "", message: "" });
   const [passLoading, setPassLoading] = useState(false);
   const [dbLoading, setDbLoading] = useState(false);
@@ -45,14 +49,23 @@ export default function ProfilePage() {
   const [oidcStatus, setOidcStatus] = useState({ type: "", message: "" });
   const [oidcLoading, setOidcLoading] = useState(false);
   const [oidcTestLoading, setOidcTestLoading] = useState(false);
-  const [oidcTestStatus, setOidcTestStatus] = useState({ type: "", message: "" });
+  const [oidcTestStatus, setOidcTestStatus] = useState({
+    type: "",
+    message: "",
+  });
   const [oidcExpanded, setOidcExpanded] = useState(false);
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
-  const oidcRedirectUri = origin ? `${origin}/api/auth/oidc/callback` : "/api/auth/oidc/callback";
-  const samlAcsUrl = origin ? `${origin}/api/auth/saml/acs` : "/api/auth/saml/acs";
-  const samlMetadataUrl = origin ? `${origin}/api/auth/saml/metadata` : "/api/auth/saml/metadata";
-  
+  const oidcRedirectUri = origin
+    ? `${origin}/api/auth/oidc/callback`
+    : "/api/auth/oidc/callback";
+  const samlAcsUrl = origin
+    ? `${origin}/api/auth/saml/acs`
+    : "/api/auth/saml/acs";
+  const samlMetadataUrl = origin
+    ? `${origin}/api/auth/saml/metadata`
+    : "/api/auth/saml/metadata";
+
   // SAML State
   const [ssoTypeTab, setSsoTypeTab] = useState("saml");
   const [samlForm, setSamlForm] = useState({
@@ -66,7 +79,10 @@ export default function ProfilePage() {
   const [samlStatus, setSamlStatus] = useState({ type: "", message: "" });
   const [samlLoading, setSamlLoading] = useState(false);
   const [samlTestLoading, setSamlTestLoading] = useState(false);
-  const [samlTestStatus, setSamlTestStatus] = useState({ type: "", message: "" });
+  const [samlTestStatus, setSamlTestStatus] = useState({
+    type: "",
+    message: "",
+  });
   const [showSamlGuide, setShowSamlGuide] = useState(false);
   const idpMetadataFileRef = useRef(null);
   const certFileRef = useRef(null);
@@ -84,14 +100,32 @@ export default function ProfilePage() {
   const [isRemoteHost, setIsRemoteHost] = useState(false);
   useEffect(() => {
     if (typeof window !== "undefined")
-      setIsRemoteHost(!["localhost", "127.0.0.1", "::1"].includes(window.location.hostname));
+      setIsRemoteHost(
+        !["localhost", "127.0.0.1", "::1"].includes(window.location.hostname),
+      );
   }, []);
+
+  const [usernameInput, setUsernameInput] = useState("");
+  const [usernameStatus, setUsernameStatus] = useState({
+    type: "",
+    message: "",
+  });
+  const [usernameLoading, setUsernameLoading] = useState(false);
+
+  const [twoFaSetup, setTwoFaSetup] = useState(null);
+  const [twoFaCode, setTwoFaCode] = useState("");
+  const [twoFaLoading, setTwoFaLoading] = useState(false);
+  const [twoFaStatus, setTwoFaStatus] = useState({ type: "", message: "" });
+  const [recoveryCodes, setRecoveryCodes] = useState([]);
+  const [twoFaDisableOpen, setTwoFaDisableOpen] = useState(false);
+  const [disablePassword, setDisablePassword] = useState("");
 
   useEffect(() => {
     fetch("/api/settings")
       .then((res) => res.json())
       .then((data) => {
         setSettings(data);
+        setUsernameInput(data?.username || "admin");
         setOidcForm({
           authMode: data?.authMode || "password",
           oidcIssuerUrl: data?.oidcIssuerUrl || "",
@@ -151,7 +185,10 @@ export default function ProfilePage() {
         setSettings((prev) => ({ ...prev, ...data }));
         setProxyStatus({ type: "success", message: "Proxy settings applied" });
       } else {
-        setProxyStatus({ type: "error", message: data.error || "Failed to update proxy settings" });
+        setProxyStatus({
+          type: "error",
+          message: data.error || "Failed to update proxy settings",
+        });
       }
     } catch (err) {
       setProxyStatus({ type: "error", message: "An error occurred" });
@@ -165,7 +202,10 @@ export default function ProfilePage() {
 
     const proxyUrl = (proxyForm.outboundProxyUrl || "").trim();
     if (!proxyUrl) {
-      setProxyStatus({ type: "error", message: "Please enter a Proxy URL to test" });
+      setProxyStatus({
+        type: "error",
+        message: "Please enter a Proxy URL to test",
+      });
       return;
     }
 
@@ -212,18 +252,149 @@ export default function ProfilePage() {
       const data = await res.json();
       if (res.ok) {
         setSettings((prev) => ({ ...prev, ...data }));
-        setProxyForm((prev) => ({ ...prev, outboundProxyEnabled: data?.outboundProxyEnabled === true }));
+        setProxyForm((prev) => ({
+          ...prev,
+          outboundProxyEnabled: data?.outboundProxyEnabled === true,
+        }));
         setProxyStatus({
           type: "success",
           message: outboundProxyEnabled ? "Proxy enabled" : "Proxy disabled",
         });
       } else {
-        setProxyStatus({ type: "error", message: data.error || "Failed to update proxy settings" });
+        setProxyStatus({
+          type: "error",
+          message: data.error || "Failed to update proxy settings",
+        });
       }
     } catch (err) {
       setProxyStatus({ type: "error", message: "An error occurred" });
     } finally {
       setProxyLoading(false);
+    }
+  };
+
+  const handleUsernameChange = async (e) => {
+    e.preventDefault();
+    const trimmed = usernameInput.trim();
+    if (!trimmed) {
+      setUsernameStatus({ type: "error", message: "Username cannot be empty" });
+      return;
+    }
+    setUsernameLoading(true);
+    setUsernameStatus({ type: "", message: "" });
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: trimmed }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setSettings((prev) => ({ ...prev, username: trimmed }));
+        setUsernameStatus({
+          type: "success",
+          message: "Username updated successfully",
+        });
+      } else {
+        setUsernameStatus({
+          type: "error",
+          message: data.error || "Failed to update username",
+        });
+      }
+    } catch {
+      setUsernameStatus({ type: "error", message: "An error occurred" });
+    } finally {
+      setUsernameLoading(false);
+    }
+  };
+
+  const startTwoFaSetup = async () => {
+    setTwoFaLoading(true);
+    setTwoFaStatus({ type: "", message: "" });
+    try {
+      const res = await fetch("/api/auth/2fa/setup", { method: "POST" });
+      const data = await res.json();
+      if (res.ok) {
+        setTwoFaSetup(data);
+      } else {
+        setTwoFaStatus({
+          type: "error",
+          message: data.error || "Failed to initialize 2FA setup",
+        });
+      }
+    } catch {
+      setTwoFaStatus({ type: "error", message: "An error occurred" });
+    } finally {
+      setTwoFaLoading(false);
+    }
+  };
+
+  const verifyAndEnableTwoFa = async (e) => {
+    e.preventDefault();
+    if (!twoFaSetup?.secret || !twoFaCode) return;
+    setTwoFaLoading(true);
+    setTwoFaStatus({ type: "", message: "" });
+    try {
+      const res = await fetch("/api/auth/2fa/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          secret: twoFaSetup.secret,
+          code: twoFaCode.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setSettings((prev) => ({ ...prev, totpEnabled: true }));
+        setRecoveryCodes(data.recoveryCodes || []);
+        setTwoFaSetup(null);
+        setTwoFaCode("");
+        setTwoFaStatus({
+          type: "success",
+          message: "2FA enabled successfully",
+        });
+      } else {
+        setTwoFaStatus({
+          type: "error",
+          message: data.error || "Invalid code",
+        });
+      }
+    } catch {
+      setTwoFaStatus({ type: "error", message: "An error occurred" });
+    } finally {
+      setTwoFaLoading(false);
+    }
+  };
+
+  const disableTwoFa = async () => {
+    setTwoFaLoading(true);
+    setTwoFaStatus({ type: "", message: "" });
+    try {
+      const res = await fetch("/api/auth/2fa/disable", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: disablePassword }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setSettings((prev) => ({ ...prev, totpEnabled: false }));
+        setTwoFaDisableOpen(false);
+        setDisablePassword("");
+        setRecoveryCodes([]);
+        setTwoFaStatus({
+          type: "success",
+          message: "2FA disabled successfully",
+        });
+      } else {
+        setTwoFaStatus({
+          type: "error",
+          message: data.error || "Failed to disable 2FA",
+        });
+      }
+    } catch {
+      setTwoFaStatus({ type: "error", message: "An error occurred" });
+    } finally {
+      setTwoFaLoading(false);
     }
   };
 
@@ -250,10 +421,16 @@ export default function ProfilePage() {
       const data = await res.json();
 
       if (res.ok) {
-        setPassStatus({ type: "success", message: "Password updated successfully" });
+        setPassStatus({
+          type: "success",
+          message: "Password updated successfully",
+        });
         setPasswords({ current: "", new: "", confirm: "" });
       } else {
-        setPassStatus({ type: "error", message: data.error || "Failed to update password" });
+        setPassStatus({
+          type: "error",
+          message: data.error || "Failed to update password",
+        });
       }
     } catch (err) {
       setPassStatus({ type: "error", message: "An error occurred" });
@@ -270,7 +447,7 @@ export default function ProfilePage() {
         body: JSON.stringify({ fallbackStrategy: strategy }),
       });
       if (res.ok) {
-        setSettings(prev => ({ ...prev, fallbackStrategy: strategy }));
+        setSettings((prev) => ({ ...prev, fallbackStrategy: strategy }));
       }
     } catch (err) {
       console.error("Failed to update settings:", err);
@@ -285,7 +462,7 @@ export default function ProfilePage() {
         body: JSON.stringify({ comboStrategy: strategy }),
       });
       if (res.ok) {
-        setSettings(prev => ({ ...prev, comboStrategy: strategy }));
+        setSettings((prev) => ({ ...prev, comboStrategy: strategy }));
       }
     } catch (err) {
       console.error("Failed to update combo strategy:", err);
@@ -303,7 +480,7 @@ export default function ProfilePage() {
         body: JSON.stringify({ stickyRoundRobinLimit: numLimit }),
       });
       if (res.ok) {
-        setSettings(prev => ({ ...prev, stickyRoundRobinLimit: numLimit }));
+        setSettings((prev) => ({ ...prev, stickyRoundRobinLimit: numLimit }));
       }
     } catch (err) {
       console.error("Failed to update sticky limit:", err);
@@ -321,7 +498,10 @@ export default function ProfilePage() {
         body: JSON.stringify({ comboStickyRoundRobinLimit: numLimit }),
       });
       if (res.ok) {
-        setSettings(prev => ({ ...prev, comboStickyRoundRobinLimit: numLimit }));
+        setSettings((prev) => ({
+          ...prev,
+          comboStickyRoundRobinLimit: numLimit,
+        }));
       }
     } catch (err) {
       console.error("Failed to update combo sticky limit:", err);
@@ -336,7 +516,7 @@ export default function ProfilePage() {
         body: JSON.stringify({ requireLogin }),
       });
       if (res.ok) {
-        setSettings(prev => ({ ...prev, requireLogin }));
+        setSettings((prev) => ({ ...prev, requireLogin }));
       }
     } catch (err) {
       console.error("Failed to update require login:", err);
@@ -347,15 +527,25 @@ export default function ProfilePage() {
     setOidcForm((prev) => ({ ...prev, [field]: value }));
   };
 
-  const saveOidcSettings = async (authMode = oidcForm.authMode || "password") => {
+  const saveOidcSettings = async (
+    authMode = oidcForm.authMode || "password",
+  ) => {
     const issuerUrl = oidcForm.oidcIssuerUrl.trim();
     const clientId = oidcForm.oidcClientId.trim();
     const scopes = oidcForm.oidcScopes.trim();
     const loginLabel = oidcForm.oidcLoginLabel.trim();
     const secret = oidcClientSecret.trim();
 
-    if (authMode !== "password" && (!issuerUrl || !clientId || !secret) && !settings.oidcConfigured) {
-      setOidcStatus({ type: "error", message: "Issuer URL, client ID, and client secret are required to enable OIDC." });
+    if (
+      authMode !== "password" &&
+      (!issuerUrl || !clientId || !secret) &&
+      !settings.oidcConfigured
+    ) {
+      setOidcStatus({
+        type: "error",
+        message:
+          "Issuer URL, client ID, and client secret are required to enable OIDC.",
+      });
       return;
     }
 
@@ -390,7 +580,8 @@ export default function ProfilePage() {
           oidcIssuerUrl: data?.oidcIssuerUrl || issuerUrl,
           oidcClientId: data?.oidcClientId || clientId,
           oidcScopes: data?.oidcScopes || scopes || "openid profile email",
-          oidcLoginLabel: data?.oidcLoginLabel || loginLabel || "Sign in with OIDC",
+          oidcLoginLabel:
+            data?.oidcLoginLabel || loginLabel || "Sign in with OIDC",
         });
         setOidcClientSecret("");
         setOidcStatus({
@@ -403,7 +594,10 @@ export default function ProfilePage() {
                 : "OIDC settings saved",
         });
       } else {
-        setOidcStatus({ type: "error", message: data.error || "Failed to save OIDC settings" });
+        setOidcStatus({
+          type: "error",
+          message: data.error || "Failed to save OIDC settings",
+        });
       }
     } catch (err) {
       setOidcStatus({ type: "error", message: "An error occurred" });
@@ -419,7 +613,11 @@ export default function ProfilePage() {
     const secret = oidcClientSecret.trim();
 
     if (!issuerUrl || !clientId) {
-      setOidcTestStatus({ type: "error", message: "Issuer URL and client ID are required to test the connection." });
+      setOidcTestStatus({
+        type: "error",
+        message:
+          "Issuer URL and client ID are required to test the connection.",
+      });
       return;
     }
 
@@ -472,7 +670,10 @@ export default function ProfilePage() {
           message: statusMessage,
         });
       } else {
-        setOidcTestStatus({ type: "error", message: data.error || "OIDC connection test failed" });
+        setOidcTestStatus({
+          type: "error",
+          message: data.error || "OIDC connection test failed",
+        });
       }
     } catch (err) {
       setOidcTestStatus({ type: "error", message: "An error occurred" });
@@ -498,12 +699,17 @@ export default function ProfilePage() {
         const doc = parser.parseFromString(xmlText, "text/xml");
         const parserError = doc.querySelector("parsererror");
         if (parserError) {
-          setSamlStatus({ type: "error", message: "Unable to parse valid SAML IdP metadata from XML file" });
+          setSamlStatus({
+            type: "error",
+            message: "Unable to parse valid SAML IdP metadata from XML file",
+          });
           return;
         }
 
         const entityID = doc.documentElement.getAttribute("entityID") || "";
-        const ssoNodes = Array.from(doc.querySelectorAll("SingleSignOnService, *|SingleSignOnService"));
+        const ssoNodes = Array.from(
+          doc.querySelectorAll("SingleSignOnService, *|SingleSignOnService"),
+        );
         let ssoUrl = "";
         for (const node of ssoNodes) {
           const binding = node.getAttribute("Binding") || "";
@@ -514,7 +720,9 @@ export default function ProfilePage() {
           }
         }
 
-        const certNodes = Array.from(doc.querySelectorAll("X509Certificate, *|X509Certificate"));
+        const certNodes = Array.from(
+          doc.querySelectorAll("X509Certificate, *|X509Certificate"),
+        );
         let certStr = "";
         if (certNodes.length > 0) {
           certStr = certNodes[0].textContent.trim();
@@ -532,7 +740,10 @@ export default function ProfilePage() {
           message: `IdP Metadata imported! (SSO URL: ${ssoUrl ? "found" : "not found"}, EntityID: ${entityID ? "found" : "not found"}, Cert: ${certStr ? "found" : "not found"})`,
         });
       } catch (err) {
-        setSamlStatus({ type: "error", message: "Error reading IdP Metadata XML file" });
+        setSamlStatus({
+          type: "error",
+          message: "Error reading IdP Metadata XML file",
+        });
       }
     };
     reader.readAsText(file);
@@ -547,12 +758,17 @@ export default function ProfilePage() {
     reader.onload = (e) => {
       const text = e.target?.result || "";
       setSamlForm((prev) => ({ ...prev, samlCert: text.trim() }));
-      setSamlStatus({ type: "success", message: "Certificate file loaded into configuration." });
+      setSamlStatus({
+        type: "success",
+        message: "Certificate file loaded into configuration.",
+      });
     };
     reader.readAsText(file);
   };
 
-  const saveSamlSettings = async (targetAuthMode = oidcForm.authMode || "password") => {
+  const saveSamlSettings = async (
+    targetAuthMode = oidcForm.authMode || "password",
+  ) => {
     setSamlLoading(true);
     setSamlStatus({ type: "", message: "" });
     setSamlTestStatus({ type: "", message: "" });
@@ -564,7 +780,8 @@ export default function ProfilePage() {
         samlEntryPoint: samlForm.samlEntryPoint.trim(),
         samlIssuer: samlForm.samlIssuer.trim() || "urn:9router:sp",
         samlCert: samlForm.samlCert.trim(),
-        samlLoginLabel: samlForm.samlLoginLabel.trim() || "Sign in with SAML SSO",
+        samlLoginLabel:
+          samlForm.samlLoginLabel.trim() || "Sign in with SAML SSO",
         samlAttributeEmail: samlForm.samlAttributeEmail.trim() || "email",
         samlAttributeName: samlForm.samlAttributeName.trim() || "name",
       };
@@ -583,8 +800,10 @@ export default function ProfilePage() {
           samlIssuer: data?.samlIssuer || payload.samlIssuer,
           samlCert: data?.samlCert || payload.samlCert,
           samlLoginLabel: data?.samlLoginLabel || payload.samlLoginLabel,
-          samlAttributeEmail: data?.samlAttributeEmail || payload.samlAttributeEmail,
-          samlAttributeName: data?.samlAttributeName || payload.samlAttributeName,
+          samlAttributeEmail:
+            data?.samlAttributeEmail || payload.samlAttributeEmail,
+          samlAttributeName:
+            data?.samlAttributeName || payload.samlAttributeName,
         });
         setSamlStatus({
           type: "success",
@@ -596,10 +815,16 @@ export default function ProfilePage() {
                 : "SAML 2.0 settings saved",
         });
       } else {
-        setSamlStatus({ type: "error", message: data.error || "Failed to save SAML settings" });
+        setSamlStatus({
+          type: "error",
+          message: data.error || "Failed to save SAML settings",
+        });
       }
     } catch {
-      setSamlStatus({ type: "error", message: "An error occurred while saving SAML settings" });
+      setSamlStatus({
+        type: "error",
+        message: "An error occurred while saving SAML settings",
+      });
     } finally {
       setSamlLoading(false);
     }
@@ -623,12 +848,21 @@ export default function ProfilePage() {
 
       const data = await res.json();
       if (res.ok && data.ok) {
-        setSamlTestStatus({ type: "success", message: data.message || "SAML configuration verified!" });
+        setSamlTestStatus({
+          type: "success",
+          message: data.message || "SAML configuration verified!",
+        });
       } else {
-        setSamlTestStatus({ type: "error", message: data.error || "SAML configuration test failed" });
+        setSamlTestStatus({
+          type: "error",
+          message: data.error || "SAML configuration test failed",
+        });
       }
     } catch {
-      setSamlTestStatus({ type: "error", message: "An error occurred while testing SAML configuration" });
+      setSamlTestStatus({
+        type: "error",
+        message: "An error occurred while testing SAML configuration",
+      });
     } finally {
       setSamlTestLoading(false);
     }
@@ -642,7 +876,7 @@ export default function ProfilePage() {
         body: JSON.stringify({ enableObservability: enabled }),
       });
       if (res.ok) {
-        setSettings(prev => ({ ...prev, enableObservability: enabled }));
+        setSettings((prev) => ({ ...prev, enableObservability: enabled }));
       }
     } catch (err) {
       console.error("Failed to update enableObservability:", err);
@@ -687,7 +921,10 @@ export default function ProfilePage() {
 
       setDbStatus({ type: "success", message: "Database backup downloaded" });
     } catch (err) {
-      setDbStatus({ type: "error", message: err.message || "Failed to export database" });
+      setDbStatus({
+        type: "error",
+        message: err.message || "Failed to export database",
+      });
     } finally {
       setDbLoading(false);
     }
@@ -722,9 +959,15 @@ export default function ProfilePage() {
       }
 
       await reloadSettings();
-      setDbStatus({ type: "success", message: "Database imported successfully" });
+      setDbStatus({
+        type: "success",
+        message: "Database imported successfully",
+      });
     } catch (err) {
-      setDbStatus({ type: "error", message: err.message || "Invalid backup file" });
+      setDbStatus({
+        type: "error",
+        message: err.message || "Invalid backup file",
+      });
     } finally {
       pendingImportRef.current = null;
       setDbLoading(false);
@@ -771,11 +1014,15 @@ export default function ProfilePage() {
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
             <div className="flex items-center gap-3 sm:gap-4">
               <div className="size-10 sm:size-12 rounded-lg bg-green-500/10 text-green-500 flex items-center justify-center shrink-0">
-                <span className="material-symbols-outlined text-xl sm:text-2xl">computer</span>
+                <span className="material-symbols-outlined text-xl sm:text-2xl">
+                  computer
+                </span>
               </div>
               <div>
                 <h2 className="text-lg sm:text-xl font-semibold">Local Mode</h2>
-                <p className="text-sm text-text-muted">Running on your machine</p>
+                <p className="text-sm text-text-muted">
+                  Running on your machine
+                </p>
               </div>
             </div>
             <div className="inline-flex p-1 rounded-lg bg-black/5 dark:bg-white/5 w-full sm:w-auto">
@@ -788,13 +1035,19 @@ export default function ProfilePage() {
                     "flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-md font-medium transition-all flex-1 sm:flex-initial",
                     theme === option
                       ? "bg-white dark:bg-white/10 text-text-main shadow-sm"
-                      : "text-text-muted hover:text-text-main"
+                      : "text-text-muted hover:text-text-main",
                   )}
                 >
                   <span className="material-symbols-outlined text-[18px]">
-                    {option === "light" ? "light_mode" : option === "dark" ? "dark_mode" : "contrast"}
+                    {option === "light"
+                      ? "light_mode"
+                      : option === "dark"
+                        ? "dark_mode"
+                        : "contrast"}
                   </span>
-                  <span className="capitalize text-xs sm:text-sm">{option}</span>
+                  <span className="capitalize text-xs sm:text-sm">
+                    {option}
+                  </span>
                 </button>
               ))}
             </div>
@@ -802,15 +1055,21 @@ export default function ProfilePage() {
           <div className="flex flex-col gap-3 pt-4 border-t border-border">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 rounded-lg bg-bg border border-border gap-2">
               <div>
-                <p className="font-medium text-sm sm:text-base">Database Location</p>
-                <p className="text-xs sm:text-sm text-text-muted font-mono break-all">~/.9router/db/data.sqlite</p>
+                <p className="font-medium text-sm sm:text-base">
+                  Database Location
+                </p>
+                <p className="text-xs sm:text-sm text-text-muted font-mono break-all">
+                  ~/.9router/db/data.sqlite
+                </p>
               </div>
             </div>
             <div className="flex flex-col sm:flex-row gap-2">
               <Button
                 variant="secondary"
                 icon="download"
-                onClick={() => setDbAuth({ open: true, mode: "export", password: "" })}
+                onClick={() =>
+                  setDbAuth({ open: true, mode: "export", password: "" })
+                }
                 loading={dbLoading}
                 className="w-full sm:w-auto"
               >
@@ -834,7 +1093,9 @@ export default function ProfilePage() {
               />
             </div>
             {dbStatus.message && (
-              <p className={`text-sm ${dbStatus.type === "error" ? "text-red-500" : "text-green-600 dark:text-green-400"}`}>
+              <p
+                className={`text-sm ${dbStatus.type === "error" ? "text-red-500" : "text-green-600 dark:text-green-400"}`}
+              >
                 {dbStatus.message}
               </p>
             )}
@@ -845,7 +1106,9 @@ export default function ProfilePage() {
         <Card>
           <div className="flex items-center gap-3 mb-4">
             <div className="size-10 rounded-lg bg-blue-500/10 text-blue-500 flex items-center justify-center shrink-0">
-              <span className="material-symbols-outlined text-[20px]">language</span>
+              <span className="material-symbols-outlined text-[20px]">
+                language
+              </span>
             </div>
             <h3 className="text-base sm:text-lg font-semibold">Language</h3>
           </div>
@@ -863,16 +1126,21 @@ export default function ProfilePage() {
         <Card>
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 rounded-lg bg-primary/10 text-primary shrink-0">
-              <span className="material-symbols-outlined text-[20px]">shield</span>
+              <span className="material-symbols-outlined text-[20px]">
+                shield
+              </span>
             </div>
             <h3 className="text-base sm:text-lg font-semibold">Security</h3>
           </div>
           <div className="flex flex-col gap-4">
             <div className="flex items-start sm:items-center justify-between gap-4">
               <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm sm:text-base">Require login</p>
+                <p className="font-medium text-sm sm:text-base">
+                  Require login
+                </p>
                 <p className="text-xs sm:text-sm text-text-muted">
-                  When ON, dashboard requires password. When OFF, access without login.
+                  When ON, dashboard requires password. When OFF, access without
+                  login.
                 </p>
               </div>
               <Toggle
@@ -882,15 +1150,22 @@ export default function ProfilePage() {
               />
             </div>
             {settings.requireLogin === true && (
-              <form onSubmit={handlePasswordChange} className="flex flex-col gap-4 pt-4 border-t border-border/50">
+              <form
+                onSubmit={handlePasswordChange}
+                className="flex flex-col gap-4 pt-4 border-t border-border/50"
+              >
                 {settings.hasPassword && (
                   <div className="flex flex-col gap-2">
-                    <label className="text-xs sm:text-sm font-medium">Current Password</label>
+                    <label className="text-xs sm:text-sm font-medium">
+                      Current Password
+                    </label>
                     <Input
                       type="password"
                       placeholder="Enter current password"
                       value={passwords.current}
-                      onChange={(e) => setPasswords({ ...passwords, current: e.target.value })}
+                      onChange={(e) =>
+                        setPasswords({ ...passwords, current: e.target.value })
+                      }
                       required
                     />
                   </div>
@@ -904,35 +1179,50 @@ export default function ProfilePage() {
                 )} */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="flex flex-col gap-2">
-                    <label className="text-xs sm:text-sm font-medium">New Password</label>
+                    <label className="text-xs sm:text-sm font-medium">
+                      New Password
+                    </label>
                     <Input
                       type="password"
                       placeholder="Enter new password"
                       value={passwords.new}
-                      onChange={(e) => setPasswords({ ...passwords, new: e.target.value })}
+                      onChange={(e) =>
+                        setPasswords({ ...passwords, new: e.target.value })
+                      }
                       required
                     />
                   </div>
                   <div className="flex flex-col gap-2">
-                    <label className="text-xs sm:text-sm font-medium">Confirm New Password</label>
+                    <label className="text-xs sm:text-sm font-medium">
+                      Confirm New Password
+                    </label>
                     <Input
                       type="password"
                       placeholder="Confirm new password"
                       value={passwords.confirm}
-                      onChange={(e) => setPasswords({ ...passwords, confirm: e.target.value })}
+                      onChange={(e) =>
+                        setPasswords({ ...passwords, confirm: e.target.value })
+                      }
                       required
                     />
                   </div>
                 </div>
 
                 {passStatus.message && (
-                  <p className={`text-xs sm:text-sm ${passStatus.type === "error" ? "text-red-500" : "text-green-500"}`}>
+                  <p
+                    className={`text-xs sm:text-sm ${passStatus.type === "error" ? "text-red-500" : "text-green-500"}`}
+                  >
                     {passStatus.message}
                   </p>
                 )}
 
                 <div className="pt-2">
-                  <Button type="submit" variant="primary" loading={passLoading} className="w-full sm:w-auto">
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    loading={passLoading}
+                    className="w-full sm:w-auto"
+                  >
                     {settings.hasPassword ? "Update Password" : "Set Password"}
                   </Button>
                 </div>
@@ -940,6 +1230,226 @@ export default function ProfilePage() {
             )}
           </div>
         </Card>
+
+        {/* Username & Account Identity */}
+        <Card>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-2 rounded-lg bg-primary/10 text-primary shrink-0">
+              <span className="material-symbols-outlined text-[20px]">
+                person
+              </span>
+            </div>
+            <h3 className="text-base sm:text-lg font-semibold">
+              Account Identity
+            </h3>
+          </div>
+          <form onSubmit={handleUsernameChange} className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <label className="text-xs sm:text-sm font-medium">
+                Dashboard Username
+              </label>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Input
+                  type="text"
+                  placeholder="admin"
+                  value={usernameInput}
+                  onChange={(e) => setUsernameInput(e.target.value)}
+                  required
+                  className="flex-1"
+                />
+                <Button
+                  type="submit"
+                  variant="primary"
+                  loading={usernameLoading}
+                  className="sm:w-auto w-full"
+                >
+                  Save Username
+                </Button>
+              </div>
+            </div>
+            {usernameStatus.message && (
+              <p
+                className={`text-xs sm:text-sm ${usernameStatus.type === "error" ? "text-red-500" : "text-green-500"}`}
+              >
+                {usernameStatus.message}
+              </p>
+            )}
+          </form>
+        </Card>
+
+        {/* Two-Factor Authentication (TOTP 2FA) */}
+        <Card>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-500 shrink-0">
+              <span className="material-symbols-outlined text-[20px]">
+                security
+              </span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 className="text-base sm:text-lg font-semibold">
+                Authenticator App (TOTP 2FA)
+              </h3>
+              <p className="text-xs text-text-muted">
+                {settings.totpEnabled
+                  ? "Two-factor authentication is active"
+                  : "Protect your dashboard with Google Authenticator, 1Password, or Authy"}
+              </p>
+            </div>
+            <span
+              className={`px-2 py-0.5 rounded text-xs font-semibold ${settings.totpEnabled ? "bg-emerald-500/20 text-emerald-600 dark:text-emerald-400" : "bg-black/5 dark:bg-white/5 text-text-muted"}`}
+            >
+              {settings.totpEnabled ? "Enabled" : "Disabled"}
+            </span>
+          </div>
+
+          <div className="flex flex-col gap-4">
+            {twoFaStatus.message && (
+              <p
+                className={`text-xs sm:text-sm ${twoFaStatus.type === "error" ? "text-red-500" : "text-green-500"}`}
+              >
+                {twoFaStatus.message}
+              </p>
+            )}
+
+            {recoveryCodes.length > 0 && (
+              <div className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/20 flex flex-col gap-2">
+                <p className="text-sm font-semibold text-amber-600 dark:text-amber-400">
+                  Save these recovery backup codes in a safe place.
+                </p>
+                <p className="text-xs text-text-muted">
+                  Each code can be used once if you lose access to your
+                  Authenticator app.
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono text-xs text-center py-2">
+                  {recoveryCodes.map((code, idx) => (
+                    <span
+                      key={idx}
+                      className="p-1.5 rounded bg-black/10 dark:bg-white/10 font-bold"
+                    >
+                      {code}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {!settings.totpEnabled && !twoFaSetup && (
+              <div>
+                <Button
+                  type="button"
+                  variant="primary"
+                  onClick={startTwoFaSetup}
+                  loading={twoFaLoading}
+                  className="w-full sm:w-auto"
+                >
+                  Set up Authenticator App
+                </Button>
+              </div>
+            )}
+
+            {!settings.totpEnabled && twoFaSetup && (
+              <form
+                onSubmit={verifyAndEnableTwoFa}
+                className="flex flex-col gap-4 p-4 rounded-lg bg-black/5 dark:bg-white/5 border border-border"
+              >
+                <p className="text-sm font-medium">
+                  Scan or enter this key in your Authenticator app:
+                </p>
+                <div className="p-2 bg-bg rounded border border-border font-mono text-xs select-all text-center">
+                  {twoFaSetup.secret}
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs sm:text-sm font-medium">
+                    6-digit Authenticator Code
+                  </label>
+                  <Input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={6}
+                    placeholder="123456"
+                    value={twoFaCode}
+                    onChange={(e) =>
+                      setTwoFaCode(e.target.value.replace(/\D/g, ""))
+                    }
+                    required
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    loading={twoFaLoading}
+                    disabled={twoFaCode.length !== 6}
+                  >
+                    Verify & Activate 2FA
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setTwoFaSetup(null)}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </form>
+            )}
+
+            {settings.totpEnabled && (
+              <div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="text-red-500 hover:text-red-600 hover:bg-red-500/10 border-red-500/30"
+                  onClick={() => setTwoFaDisableOpen(true)}
+                >
+                  Disable Two-Factor Authentication
+                </Button>
+              </div>
+            )}
+          </div>
+        </Card>
+
+        {/* Modal Confirm Disable 2FA */}
+        <Modal
+          isOpen={twoFaDisableOpen}
+          onClose={() => {
+            setTwoFaDisableOpen(false);
+            setDisablePassword("");
+          }}
+          title="Disable Two-Factor Authentication"
+        >
+          <div className="flex flex-col gap-4">
+            <p className="text-sm text-text-muted">
+              Enter your password to confirm disabling 2FA.
+            </p>
+            <Input
+              type="password"
+              placeholder="Your current password"
+              value={disablePassword}
+              onChange={(e) => setDisablePassword(e.target.value)}
+              required
+            />
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setTwoFaDisableOpen(false);
+                  setDisablePassword("");
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                onClick={disableTwoFa}
+                loading={twoFaLoading}
+                disabled={!disablePassword}
+              >
+                Disable 2FA
+              </Button>
+            </div>
+          </div>
+        </Modal>
 
         {/* Single Sign-On (SSO) */}
         <Card>
@@ -949,12 +1459,18 @@ export default function ProfilePage() {
             className="w-full flex items-center gap-3 text-left"
           >
             <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-500 shrink-0">
-              <span className="material-symbols-outlined text-[20px]">lock_open</span>
+              <span className="material-symbols-outlined text-[20px]">
+                lock_open
+              </span>
             </div>
             <div className="flex-1 min-w-0">
-              <h3 className="text-base sm:text-lg font-semibold">Single Sign-On (SSO)</h3>
+              <h3 className="text-base sm:text-lg font-semibold">
+                Single Sign-On (SSO)
+              </h3>
               <p className="text-xs text-text-muted">
-                {settings.authMode === "sso" || settings.authMode === "oidc" || settings.authMode === "saml"
+                {settings.authMode === "sso" ||
+                settings.authMode === "oidc" ||
+                settings.authMode === "saml"
                   ? `${settings.ssoType === "saml" ? "SAML 2.0" : "OIDC"} SSO active`
                   : settings.authMode === "both"
                     ? `Password + ${settings.ssoType === "saml" ? "SAML 2.0" : "OIDC"} active`
@@ -968,12 +1484,15 @@ export default function ProfilePage() {
           {oidcExpanded && (
             <div className="flex flex-col gap-4 mt-4">
               <p className="text-xs sm:text-sm text-text-muted">
-                Configure enterprise Single Sign-On (SSO) for dashboard access using SAML 2.0 or OIDC.
+                Configure enterprise Single Sign-On (SSO) for dashboard access
+                using SAML 2.0 or OIDC.
               </p>
 
               {/* SSO Protocol Switcher Tabs */}
               <div className="flex flex-col gap-2">
-                <label className="font-medium text-sm sm:text-base">SSO Protocol</label>
+                <label className="font-medium text-sm sm:text-base">
+                  SSO Protocol
+                </label>
                 <div className="flex p-1 rounded-lg bg-black/5 dark:bg-white/5 border border-border">
                   <button
                     type="button"
@@ -982,7 +1501,7 @@ export default function ProfilePage() {
                       "flex-1 py-1.5 px-3 rounded-md font-medium text-xs sm:text-sm transition-all text-center",
                       ssoTypeTab === "saml"
                         ? "bg-white dark:bg-white/10 text-text-main shadow-sm"
-                        : "text-text-muted hover:text-text-main"
+                        : "text-text-muted hover:text-text-main",
                     )}
                   >
                     SAML 2.0
@@ -994,7 +1513,7 @@ export default function ProfilePage() {
                       "flex-1 py-1.5 px-3 rounded-md font-medium text-xs sm:text-sm transition-all text-center",
                       ssoTypeTab === "oidc"
                         ? "bg-white dark:bg-white/10 text-text-main shadow-sm"
-                        : "text-text-muted hover:text-text-main"
+                        : "text-text-muted hover:text-text-main",
                     )}
                   >
                     OIDC
@@ -1004,7 +1523,9 @@ export default function ProfilePage() {
 
               {/* Auth Mode selection */}
               <div className="flex flex-col gap-2">
-                <label className="font-medium text-sm sm:text-base">Auth Mode</label>
+                <label className="font-medium text-sm sm:text-base">
+                  Auth Mode
+                </label>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   {[
                     {
@@ -1028,7 +1549,9 @@ export default function ProfilePage() {
                       option.value === "password"
                         ? currentMode === "password"
                         : option.value === "sso"
-                          ? currentMode === "sso" || currentMode === "saml" || currentMode === "oidc"
+                          ? currentMode === "sso" ||
+                            currentMode === "saml" ||
+                            currentMode === "oidc"
                           : currentMode === "both";
                     return (
                       <button
@@ -1039,12 +1562,16 @@ export default function ProfilePage() {
                           "text-left rounded-lg border p-3 transition-colors",
                           active
                             ? "border-primary bg-primary/5"
-                            : "border-border bg-bg hover:bg-black/5 dark:hover:bg-white/5"
+                            : "border-border bg-bg hover:bg-black/5 dark:hover:bg-white/5",
                         )}
                         disabled={loading || oidcLoading || samlLoading}
                       >
-                        <p className="font-medium text-sm sm:text-base">{option.title}</p>
-                        <p className="text-xs sm:text-sm text-text-muted mt-1">{option.desc}</p>
+                        <p className="font-medium text-sm sm:text-base">
+                          {option.title}
+                        </p>
+                        <p className="text-xs sm:text-sm text-text-muted mt-1">
+                          {option.desc}
+                        </p>
                       </button>
                     );
                   })}
@@ -1062,19 +1589,25 @@ export default function ProfilePage() {
                       className="w-full p-3 flex items-center justify-between gap-2 text-left hover:bg-surface/50 transition-colors"
                     >
                       <div className="flex items-center gap-2">
-                        <span className="material-symbols-outlined text-primary text-lg">menu_book</span>
+                        <span className="material-symbols-outlined text-primary text-lg">
+                          menu_book
+                        </span>
                         <div>
                           <p className="font-semibold text-xs sm:text-sm text-text-main">
-                            IdP Setup Guidelines & Provider Configuration Instructions
+                            IdP Setup Guidelines & Provider Configuration
+                            Instructions
                           </p>
                           <p className="text-[11px] text-text-muted">
-                            Click to view setup steps for AWS IAM Identity Center, Okta, Entra ID, Keycloak, & Authentik
+                            Click to view setup steps for AWS IAM Identity
+                            Center, Okta, Entra ID, Keycloak, & Authentik
                           </p>
                         </div>
                       </div>
                       <span
                         className="material-symbols-outlined text-text-muted transition-transform text-lg"
-                        style={{ transform: showSamlGuide ? "rotate(180deg)" : "none" }}
+                        style={{
+                          transform: showSamlGuide ? "rotate(180deg)" : "none",
+                        }}
                       >
                         expand_more
                       </span>
@@ -1083,19 +1616,32 @@ export default function ProfilePage() {
                     {showSamlGuide && (
                       <div className="p-4 border-t border-border bg-surface/30 text-xs text-text-main flex flex-col gap-3">
                         <div className="p-2.5 rounded border border-primary/20 bg-primary/5 text-primary text-xs">
-                          <p className="font-semibold mb-1">🔑 Required Service Provider (SP) Values for your IdP Setup:</p>
+                          <p className="font-semibold mb-1">
+                            🔑 Required Service Provider (SP) Values for your
+                            IdP Setup:
+                          </p>
                           <ul className="list-disc pl-4 space-y-1 font-mono text-[11px]">
                             <li>
                               <b>Assertion Consumer Service (ACS) URL:</b>{" "}
-                              <code className="bg-bg px-1 py-0.5 rounded break-all">{samlAcsUrl}</code>
+                              <code className="bg-bg px-1 py-0.5 rounded break-all">
+                                {samlAcsUrl}
+                              </code>
                             </li>
                             <li>
                               <b>SP Entity ID / Audience URI:</b>{" "}
-                              <code className="bg-bg px-1 py-0.5 rounded break-all">{samlForm.samlIssuer || "urn:9router:sp"}</code>
+                              <code className="bg-bg px-1 py-0.5 rounded break-all">
+                                {samlForm.samlIssuer || "urn:9router:sp"}
+                              </code>
                             </li>
                             <li>
                               <b>NameID Format:</b>{" "}
-                              <code className="bg-bg px-1 py-0.5 rounded">EmailAddress</code> or <code className="bg-bg px-1 py-0.5 rounded">Unspecified</code>
+                              <code className="bg-bg px-1 py-0.5 rounded">
+                                EmailAddress
+                              </code>{" "}
+                              or{" "}
+                              <code className="bg-bg px-1 py-0.5 rounded">
+                                Unspecified
+                              </code>
                             </li>
                           </ul>
                         </div>
@@ -1106,11 +1652,44 @@ export default function ProfilePage() {
                               <span>☁️</span> AWS IAM Identity Center
                             </p>
                             <ol className="list-decimal pl-4 text-text-muted space-y-1">
-                              <li>Applications → <b>Add application</b> → Select <b>Add custom SAML 2.0 application</b>.</li>
-                              <li>Set <b>Application ACS URL</b> to <code className="text-text-main font-mono">{samlAcsUrl}</code>.</li>
-                              <li>Set <b>Application SAML audience</b> to <code className="text-text-main font-mono">{samlForm.samlIssuer || "urn:9router:sp"}</code>.</li>
-                              <li>Under <i>Attribute mappings</i>, map <code className="text-text-main font-mono">Subject</code> or <code className="text-text-main font-mono">email</code> to <code className="text-text-main font-mono">${`{user:email}`}</code>.</li>
-                              <li>Download <b>IAM Identity Center SAML metadata XML</b> file and use 1-Click Import below!</li>
+                              <li>
+                                Applications → <b>Add application</b> → Select{" "}
+                                <b>Add custom SAML 2.0 application</b>.
+                              </li>
+                              <li>
+                                Set <b>Application ACS URL</b> to{" "}
+                                <code className="text-text-main font-mono">
+                                  {samlAcsUrl}
+                                </code>
+                                .
+                              </li>
+                              <li>
+                                Set <b>Application SAML audience</b> to{" "}
+                                <code className="text-text-main font-mono">
+                                  {samlForm.samlIssuer || "urn:9router:sp"}
+                                </code>
+                                .
+                              </li>
+                              <li>
+                                Under <i>Attribute mappings</i>, map{" "}
+                                <code className="text-text-main font-mono">
+                                  Subject
+                                </code>{" "}
+                                or{" "}
+                                <code className="text-text-main font-mono">
+                                  email
+                                </code>{" "}
+                                to{" "}
+                                <code className="text-text-main font-mono">
+                                  ${`{user:email}`}
+                                </code>
+                                .
+                              </li>
+                              <li>
+                                Download{" "}
+                                <b>IAM Identity Center SAML metadata XML</b>{" "}
+                                file and use 1-Click Import below!
+                              </li>
                             </ol>
                           </div>
 
@@ -1119,11 +1698,29 @@ export default function ProfilePage() {
                               <span>🔷</span> Microsoft Entra ID (Azure AD)
                             </p>
                             <ol className="list-decimal pl-4 text-text-muted space-y-1">
-                              <li>Enterprise Applications → <b>New application</b> → <b>Create your own application</b>.</li>
-                              <li>Select <b>Single sign-on</b> → <b>SAML</b>.</li>
-                              <li><b>Identifier (Entity ID):</b> <code className="text-text-main font-mono">{samlForm.samlIssuer || "urn:9router:sp"}</code></li>
-                              <li><b>Reply URL (ACS):</b> <code className="text-text-main font-mono">{samlAcsUrl}</code></li>
-                              <li>Download <b>Federation Metadata XML</b> and import or copy X.509 Certificate.</li>
+                              <li>
+                                Enterprise Applications → <b>New application</b>{" "}
+                                → <b>Create your own application</b>.
+                              </li>
+                              <li>
+                                Select <b>Single sign-on</b> → <b>SAML</b>.
+                              </li>
+                              <li>
+                                <b>Identifier (Entity ID):</b>{" "}
+                                <code className="text-text-main font-mono">
+                                  {samlForm.samlIssuer || "urn:9router:sp"}
+                                </code>
+                              </li>
+                              <li>
+                                <b>Reply URL (ACS):</b>{" "}
+                                <code className="text-text-main font-mono">
+                                  {samlAcsUrl}
+                                </code>
+                              </li>
+                              <li>
+                                Download <b>Federation Metadata XML</b> and
+                                import or copy X.509 Certificate.
+                              </li>
                             </ol>
                           </div>
 
@@ -1132,11 +1729,29 @@ export default function ProfilePage() {
                               <span>🟢</span> Okta / Auth0
                             </p>
                             <ol className="list-decimal pl-4 text-text-muted space-y-1">
-                              <li>Applications → <b>Create App Integration</b> → Select <b>SAML 2.0</b>.</li>
-                              <li><b>Single Sign-On URL:</b> <code className="text-text-main font-mono">{samlAcsUrl}</code></li>
-                              <li><b>Audience URI (SP Entity ID):</b> <code className="text-text-main font-mono">{samlForm.samlIssuer || "urn:9router:sp"}</code></li>
-                              <li>Name ID format: <i>EmailAddress</i>.</li>
-                              <li>Download Identity Provider metadata XML or copy the X.509 cert.</li>
+                              <li>
+                                Applications → <b>Create App Integration</b> →
+                                Select <b>SAML 2.0</b>.
+                              </li>
+                              <li>
+                                <b>Single Sign-On URL:</b>{" "}
+                                <code className="text-text-main font-mono">
+                                  {samlAcsUrl}
+                                </code>
+                              </li>
+                              <li>
+                                <b>Audience URI (SP Entity ID):</b>{" "}
+                                <code className="text-text-main font-mono">
+                                  {samlForm.samlIssuer || "urn:9router:sp"}
+                                </code>
+                              </li>
+                              <li>
+                                Name ID format: <i>EmailAddress</i>.
+                              </li>
+                              <li>
+                                Download Identity Provider metadata XML or copy
+                                the X.509 cert.
+                              </li>
                             </ol>
                           </div>
 
@@ -1145,10 +1760,26 @@ export default function ProfilePage() {
                               <span>🛡️</span> Keycloak / Authentik
                             </p>
                             <ol className="list-decimal pl-4 text-text-muted space-y-1">
-                              <li>Clients → <b>Create client</b> → Select <b>SAML</b>.</li>
-                              <li><b>Client ID:</b> <code className="text-text-main font-mono">{samlForm.samlIssuer || "urn:9router:sp"}</code></li>
-                              <li><b>Master SAML Processing URL:</b> <code className="text-text-main font-mono">{samlAcsUrl}</code></li>
-                              <li>Export SAML Descriptor XML or copy IDP Certificate PEM.</li>
+                              <li>
+                                Clients → <b>Create client</b> → Select{" "}
+                                <b>SAML</b>.
+                              </li>
+                              <li>
+                                <b>Client ID:</b>{" "}
+                                <code className="text-text-main font-mono">
+                                  {samlForm.samlIssuer || "urn:9router:sp"}
+                                </code>
+                              </li>
+                              <li>
+                                <b>Master SAML Processing URL:</b>{" "}
+                                <code className="text-text-main font-mono">
+                                  {samlAcsUrl}
+                                </code>
+                              </li>
+                              <li>
+                                Export SAML Descriptor XML or copy IDP
+                                Certificate PEM.
+                              </li>
                             </ol>
                           </div>
                         </div>
@@ -1159,8 +1790,12 @@ export default function ProfilePage() {
                   {/* Quick Import Card */}
                   <div className="p-3 rounded-lg border border-dashed border-primary/40 bg-primary/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div>
-                      <p className="font-medium text-sm text-text-main">1-Click IdP Metadata XML Import</p>
-                      <p className="text-xs text-text-muted">Auto-fill SSO URL, Issuer & Cert from XML metadata</p>
+                      <p className="font-medium text-sm text-text-main">
+                        1-Click IdP Metadata XML Import
+                      </p>
+                      <p className="text-xs text-text-muted">
+                        Auto-fill SSO URL, Issuer & Cert from XML metadata
+                      </p>
                     </div>
                     <Button
                       type="button"
@@ -1182,28 +1817,38 @@ export default function ProfilePage() {
 
                   <div className="grid grid-cols-1 gap-4">
                     <div className="flex flex-col gap-2">
-                      <label className="font-medium text-sm sm:text-base">Single Sign-On Service URL (samlEntryPoint)</label>
+                      <label className="font-medium text-sm sm:text-base">
+                        Single Sign-On Service URL (samlEntryPoint)
+                      </label>
                       <Input
                         placeholder="https://idp.example.com/app/saml/sso/..."
                         value={samlForm.samlEntryPoint}
-                        onChange={(e) => updateSamlForm("samlEntryPoint", e.target.value)}
+                        onChange={(e) =>
+                          updateSamlForm("samlEntryPoint", e.target.value)
+                        }
                         disabled={loading || samlLoading}
                       />
                     </div>
 
                     <div className="flex flex-col gap-2">
-                      <label className="font-medium text-sm sm:text-base">SP Entity ID / Audience (samlIssuer)</label>
+                      <label className="font-medium text-sm sm:text-base">
+                        SP Entity ID / Audience (samlIssuer)
+                      </label>
                       <Input
                         placeholder="urn:9router:sp"
                         value={samlForm.samlIssuer}
-                        onChange={(e) => updateSamlForm("samlIssuer", e.target.value)}
+                        onChange={(e) =>
+                          updateSamlForm("samlIssuer", e.target.value)
+                        }
                         disabled={loading || samlLoading}
                       />
                     </div>
 
                     <div className="flex flex-col gap-2">
                       <div className="flex items-center justify-between">
-                        <label className="font-medium text-sm sm:text-base">IdP X.509 Certificate (samlCert)</label>
+                        <label className="font-medium text-sm sm:text-base">
+                          IdP X.509 Certificate (samlCert)
+                        </label>
                         <Button
                           type="button"
                           variant="outline"
@@ -1225,40 +1870,56 @@ export default function ProfilePage() {
                         rows={4}
                         placeholder="-----BEGIN CERTIFICATE-----&#10;MIIC...&#10;-----END CERTIFICATE-----"
                         value={samlForm.samlCert}
-                        onChange={(e) => updateSamlForm("samlCert", e.target.value)}
+                        onChange={(e) =>
+                          updateSamlForm("samlCert", e.target.value)
+                        }
                         className="w-full p-2.5 rounded-lg border border-border bg-bg text-xs font-mono text-text-main focus:outline-none focus:border-primary"
                         disabled={loading || samlLoading}
                       />
-                      <p className="text-xs text-text-muted">Paste raw Base64 certificate or PEM block.</p>
+                      <p className="text-xs text-text-muted">
+                        Paste raw Base64 certificate or PEM block.
+                      </p>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <div className="flex flex-col gap-2">
-                        <label className="font-medium text-sm sm:text-base">Login Button Label</label>
+                        <label className="font-medium text-sm sm:text-base">
+                          Login Button Label
+                        </label>
                         <Input
                           placeholder="Sign in with SAML SSO"
                           value={samlForm.samlLoginLabel}
-                          onChange={(e) => updateSamlForm("samlLoginLabel", e.target.value)}
+                          onChange={(e) =>
+                            updateSamlForm("samlLoginLabel", e.target.value)
+                          }
                           disabled={loading || samlLoading}
                         />
                       </div>
 
                       <div className="flex flex-col gap-2">
-                        <label className="font-medium text-sm sm:text-base">Email Claim Attribute</label>
+                        <label className="font-medium text-sm sm:text-base">
+                          Email Claim Attribute
+                        </label>
                         <Input
                           placeholder="email"
                           value={samlForm.samlAttributeEmail}
-                          onChange={(e) => updateSamlForm("samlAttributeEmail", e.target.value)}
+                          onChange={(e) =>
+                            updateSamlForm("samlAttributeEmail", e.target.value)
+                          }
                           disabled={loading || samlLoading}
                         />
                       </div>
 
                       <div className="flex flex-col gap-2">
-                        <label className="font-medium text-sm sm:text-base">Display Name Claim</label>
+                        <label className="font-medium text-sm sm:text-base">
+                          Display Name Claim
+                        </label>
                         <Input
                           placeholder="name"
                           value={samlForm.samlAttributeName}
-                          onChange={(e) => updateSamlForm("samlAttributeName", e.target.value)}
+                          onChange={(e) =>
+                            updateSamlForm("samlAttributeName", e.target.value)
+                          }
                           disabled={loading || samlLoading}
                         />
                       </div>
@@ -1268,8 +1929,12 @@ export default function ProfilePage() {
                   <div className="flex flex-col gap-2 p-3 rounded-lg border border-border bg-bg text-xs sm:text-sm text-text-muted">
                     <div className="flex items-center justify-between gap-2">
                       <div>
-                        <p className="font-medium text-text-main">ACS Callback URL</p>
-                        <code className="block break-all font-mono text-xs">{samlAcsUrl}</code>
+                        <p className="font-medium text-text-main">
+                          ACS Callback URL
+                        </p>
+                        <code className="block break-all font-mono text-xs">
+                          {samlAcsUrl}
+                        </code>
                       </div>
                       <Button
                         type="button"
@@ -1278,7 +1943,10 @@ export default function ProfilePage() {
                         icon="content_copy"
                         onClick={() => {
                           navigator.clipboard.writeText(samlAcsUrl);
-                          setSamlStatus({ type: "success", message: "ACS URL copied to clipboard!" });
+                          setSamlStatus({
+                            type: "success",
+                            message: "ACS URL copied to clipboard!",
+                          });
                         }}
                       >
                         Copy
@@ -1286,8 +1954,12 @@ export default function ProfilePage() {
                     </div>
                     <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/50">
                       <div>
-                        <p className="font-medium text-text-main">SP XML Metadata</p>
-                        <code className="block break-all font-mono text-xs">{samlMetadataUrl}</code>
+                        <p className="font-medium text-text-main">
+                          SP XML Metadata
+                        </p>
+                        <code className="block break-all font-mono text-xs">
+                          {samlMetadataUrl}
+                        </code>
                       </div>
                       <a
                         href={samlMetadataUrl}
@@ -1296,7 +1968,9 @@ export default function ProfilePage() {
                         download="9router-sp-metadata.xml"
                         className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
                       >
-                        <span className="material-symbols-outlined text-[16px]">download</span>
+                        <span className="material-symbols-outlined text-[16px]">
+                          download
+                        </span>
                         Download XML
                       </a>
                     </div>
@@ -1324,13 +1998,17 @@ export default function ProfilePage() {
                   </div>
 
                   {samlTestStatus.message && (
-                    <p className={`text-xs sm:text-sm ${samlTestStatus.type === "error" ? "text-red-500" : "text-green-500"}`}>
+                    <p
+                      className={`text-xs sm:text-sm ${samlTestStatus.type === "error" ? "text-red-500" : "text-green-500"}`}
+                    >
                       {samlTestStatus.message}
                     </p>
                   )}
 
                   {samlStatus.message && (
-                    <p className={`text-xs sm:text-sm ${samlStatus.type === "error" ? "text-red-500" : "text-green-500"}`}>
+                    <p
+                      className={`text-xs sm:text-sm ${samlStatus.type === "error" ? "text-red-500" : "text-green-500"}`}
+                    >
                       {samlStatus.message}
                     </p>
                   )}
@@ -1340,27 +2018,37 @@ export default function ProfilePage() {
                 <div className="flex flex-col gap-4 pt-2 border-t border-border/50">
                   <div className="grid grid-cols-1 gap-4">
                     <div className="flex flex-col gap-2">
-                      <label className="font-medium text-sm sm:text-base">Issuer URL</label>
+                      <label className="font-medium text-sm sm:text-base">
+                        Issuer URL
+                      </label>
                       <Input
                         placeholder="https://auth.example.com/application/o/9router/"
                         value={oidcForm.oidcIssuerUrl}
-                        onChange={(e) => updateOidcForm("oidcIssuerUrl", e.target.value)}
+                        onChange={(e) =>
+                          updateOidcForm("oidcIssuerUrl", e.target.value)
+                        }
                         disabled={loading || oidcLoading}
                       />
                     </div>
 
                     <div className="flex flex-col gap-2">
-                      <label className="font-medium text-sm sm:text-base">Client ID</label>
+                      <label className="font-medium text-sm sm:text-base">
+                        Client ID
+                      </label>
                       <Input
                         placeholder="9router-dashboard"
                         value={oidcForm.oidcClientId}
-                        onChange={(e) => updateOidcForm("oidcClientId", e.target.value)}
+                        onChange={(e) =>
+                          updateOidcForm("oidcClientId", e.target.value)
+                        }
                         disabled={loading || oidcLoading}
                       />
                     </div>
 
                     <div className="flex flex-col gap-2">
-                      <label className="font-medium text-sm sm:text-base">Client Secret</label>
+                      <label className="font-medium text-sm sm:text-base">
+                        Client Secret
+                      </label>
                       <Input
                         type="password"
                         placeholder="Leave blank to keep existing secret"
@@ -1368,67 +2056,103 @@ export default function ProfilePage() {
                         onChange={(e) => setOidcClientSecret(e.target.value)}
                         disabled={loading || oidcLoading}
                       />
-                      <p className="text-xs sm:text-sm text-text-muted">This value is write-only after saving.</p>
+                      <p className="text-xs sm:text-sm text-text-muted">
+                        This value is write-only after saving.
+                      </p>
                     </div>
 
                     <div className="flex flex-col gap-2">
-                      <label className="font-medium text-sm sm:text-base">Scopes</label>
+                      <label className="font-medium text-sm sm:text-base">
+                        Scopes
+                      </label>
                       <Input
                         placeholder="openid profile email"
                         value={oidcForm.oidcScopes}
-                        onChange={(e) => updateOidcForm("oidcScopes", e.target.value)}
+                        onChange={(e) =>
+                          updateOidcForm("oidcScopes", e.target.value)
+                        }
                         disabled={loading || oidcLoading}
                       />
                     </div>
 
                     <div className="flex flex-col gap-2">
-                      <label className="font-medium text-sm sm:text-base">Login Button Label</label>
+                      <label className="font-medium text-sm sm:text-base">
+                        Login Button Label
+                      </label>
                       <Input
                         placeholder="Sign in with OIDC"
                         value={oidcForm.oidcLoginLabel}
-                        onChange={(e) => updateOidcForm("oidcLoginLabel", e.target.value)}
+                        onChange={(e) =>
+                          updateOidcForm("oidcLoginLabel", e.target.value)
+                        }
                         disabled={loading || oidcLoading}
                       />
                     </div>
                   </div>
 
                   <div className="rounded-lg border border-border bg-bg p-3 text-xs sm:text-sm text-text-muted">
-                    <p className="font-medium text-text-main mb-1">Redirect URI</p>
-                    <code className="block break-all font-mono">{oidcRedirectUri}</code>
+                    <p className="font-medium text-text-main mb-1">
+                      Redirect URI
+                    </p>
+                    <code className="block break-all font-mono">
+                      {oidcRedirectUri}
+                    </code>
                   </div>
 
                   <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-border/50">
-                    <Button type="button" variant="primary" loading={oidcLoading} onClick={() => saveOidcSettings()} className="w-full sm:w-auto">
+                    <Button
+                      type="button"
+                      variant="primary"
+                      loading={oidcLoading}
+                      onClick={() => saveOidcSettings()}
+                      className="w-full sm:w-auto"
+                    >
                       Save OIDC settings
                     </Button>
-                    <Button type="button" variant="outline" loading={oidcTestLoading} onClick={testOidcConnection} className="w-full sm:w-auto">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      loading={oidcTestLoading}
+                      onClick={testOidcConnection}
+                      className="w-full sm:w-auto"
+                    >
                       Test connection
                     </Button>
                   </div>
 
                   {oidcTestStatus.message && (
-                    <p className={`text-xs sm:text-sm ${oidcTestStatus.type === "error" ? "text-red-500" : "text-green-500"}`}>
+                    <p
+                      className={`text-xs sm:text-sm ${oidcTestStatus.type === "error" ? "text-red-500" : "text-green-500"}`}
+                    >
                       {oidcTestStatus.message}
                     </p>
                   )}
 
                   {oidcStatus.message && (
-                    <p className={`text-xs sm:text-sm ${oidcStatus.type === "error" ? "text-red-500" : "text-green-500"}`}>
+                    <p
+                      className={`text-xs sm:text-sm ${oidcStatus.type === "error" ? "text-red-500" : "text-green-500"}`}
+                    >
                       {oidcStatus.message}
                     </p>
                   )}
                 </div>
               )}
 
-              {settings.authMode === "oidc" || settings.authMode === "saml" || settings.authMode === "sso" ? (
+              {settings.authMode === "oidc" ||
+              settings.authMode === "saml" ||
+              settings.authMode === "sso" ? (
                 <p className="text-xs sm:text-sm text-amber-600 dark:text-amber-400">
-                  SSO login ({settings.ssoType === "saml" ? "SAML 2.0" : "OIDC"}) is currently active. Password login is disabled until you switch back.
+                  SSO login ({settings.ssoType === "saml" ? "SAML 2.0" : "OIDC"}
+                  ) is currently active. Password login is disabled until you
+                  switch back.
                 </p>
               ) : null}
 
               {settings.authMode === "both" && (
                 <p className="text-xs sm:text-sm text-amber-600 dark:text-amber-400">
-                  Password and SSO login ({settings.ssoType === "saml" ? "SAML 2.0" : "OIDC"}) are both active.
+                  Password and SSO login (
+                  {settings.ssoType === "saml" ? "SAML 2.0" : "OIDC"}) are both
+                  active.
                 </p>
               )}
             </div>
@@ -1439,9 +2163,13 @@ export default function ProfilePage() {
         <Card>
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 rounded-lg bg-blue-500/10 text-blue-500 shrink-0">
-              <span className="material-symbols-outlined text-[20px]">route</span>
+              <span className="material-symbols-outlined text-[20px]">
+                route
+              </span>
             </div>
-            <h3 className="text-base sm:text-lg font-semibold">Routing Strategy</h3>
+            <h3 className="text-base sm:text-lg font-semibold">
+              Routing Strategy
+            </h3>
           </div>
           <div className="flex flex-col gap-4">
             <div className="flex items-start sm:items-center justify-between gap-4">
@@ -1453,7 +2181,13 @@ export default function ProfilePage() {
               </div>
               <Toggle
                 checked={settings.fallbackStrategy === "round-robin"}
-                onChange={() => updateFallbackStrategy(settings.fallbackStrategy === "round-robin" ? "fill-first" : "round-robin")}
+                onChange={() =>
+                  updateFallbackStrategy(
+                    settings.fallbackStrategy === "round-robin"
+                      ? "fill-first"
+                      : "round-robin",
+                  )
+                }
                 disabled={loading}
               />
             </div>
@@ -1462,7 +2196,9 @@ export default function ProfilePage() {
             {settings.fallbackStrategy === "round-robin" && (
               <div className="flex items-start sm:items-center justify-between gap-4 pt-2 border-t border-border/50">
                 <div className="flex-1 min-w-0">
-                  <p className="font-medium text-sm sm:text-base">Sticky Limit</p>
+                  <p className="font-medium text-sm sm:text-base">
+                    Sticky Limit
+                  </p>
                   <p className="text-xs sm:text-sm text-text-muted">
                     Calls per account before switching
                   </p>
@@ -1482,14 +2218,23 @@ export default function ProfilePage() {
             {/* Combo Round Robin */}
             <div className="flex items-start sm:items-center justify-between gap-4 pt-4 border-t border-border/50">
               <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm sm:text-base">Combo Round Robin</p>
+                <p className="font-medium text-sm sm:text-base">
+                  Combo Round Robin
+                </p>
                 <p className="text-xs sm:text-sm text-text-muted">
-                  Cycle through providers in combos instead of always starting with first
+                  Cycle through providers in combos instead of always starting
+                  with first
                 </p>
               </div>
               <Toggle
                 checked={settings.comboStrategy === "round-robin"}
-                onChange={() => updateComboStrategy(settings.comboStrategy === "round-robin" ? "fallback" : "round-robin")}
+                onChange={() =>
+                  updateComboStrategy(
+                    settings.comboStrategy === "round-robin"
+                      ? "fallback"
+                      : "round-robin",
+                  )
+                }
                 disabled={loading}
               />
             </div>
@@ -1530,7 +2275,9 @@ export default function ProfilePage() {
         <Card>
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 rounded-lg bg-purple-500/10 text-purple-500 shrink-0">
-              <span className="material-symbols-outlined text-[20px]">wifi</span>
+              <span className="material-symbols-outlined text-[20px]">
+                wifi
+              </span>
             </div>
             <h3 className="text-base sm:text-lg font-semibold">Network</h3>
           </div>
@@ -1538,38 +2285,67 @@ export default function ProfilePage() {
           <div className="flex flex-col gap-4">
             <div className="flex items-start sm:items-center justify-between gap-4">
               <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm sm:text-base">Outbound Proxy</p>
-                <p className="text-xs sm:text-sm text-text-muted">Enable proxy for OAuth + provider outbound requests.</p>
+                <p className="font-medium text-sm sm:text-base">
+                  Outbound Proxy
+                </p>
+                <p className="text-xs sm:text-sm text-text-muted">
+                  Enable proxy for OAuth + provider outbound requests.
+                </p>
               </div>
               <Toggle
                 checked={settings.outboundProxyEnabled === true}
-                onChange={() => updateOutboundProxyEnabled(!(settings.outboundProxyEnabled === true))}
+                onChange={() =>
+                  updateOutboundProxyEnabled(
+                    !(settings.outboundProxyEnabled === true),
+                  )
+                }
                 disabled={loading || proxyLoading}
               />
             </div>
 
             {settings.outboundProxyEnabled === true && (
-              <form onSubmit={updateOutboundProxy} className="flex flex-col gap-4 pt-2 border-t border-border/50">
+              <form
+                onSubmit={updateOutboundProxy}
+                className="flex flex-col gap-4 pt-2 border-t border-border/50"
+              >
                 <div className="flex flex-col gap-2">
-                  <label className="font-medium text-sm sm:text-base">Proxy URL</label>
+                  <label className="font-medium text-sm sm:text-base">
+                    Proxy URL
+                  </label>
                   <Input
                     placeholder="http://127.0.0.1:7897"
                     value={proxyForm.outboundProxyUrl}
-                    onChange={(e) => setProxyForm((prev) => ({ ...prev, outboundProxyUrl: e.target.value }))}
+                    onChange={(e) =>
+                      setProxyForm((prev) => ({
+                        ...prev,
+                        outboundProxyUrl: e.target.value,
+                      }))
+                    }
                     disabled={loading || proxyLoading}
                   />
-                  <p className="text-xs sm:text-sm text-text-muted">Leave empty to inherit existing env proxy (if any).</p>
+                  <p className="text-xs sm:text-sm text-text-muted">
+                    Leave empty to inherit existing env proxy (if any).
+                  </p>
                 </div>
 
                 <div className="flex flex-col gap-2 pt-2 border-t border-border/50">
-                  <label className="font-medium text-sm sm:text-base">No Proxy</label>
+                  <label className="font-medium text-sm sm:text-base">
+                    No Proxy
+                  </label>
                   <Input
                     placeholder="localhost,127.0.0.1"
                     value={proxyForm.outboundNoProxy}
-                    onChange={(e) => setProxyForm((prev) => ({ ...prev, outboundNoProxy: e.target.value }))}
+                    onChange={(e) =>
+                      setProxyForm((prev) => ({
+                        ...prev,
+                        outboundNoProxy: e.target.value,
+                      }))
+                    }
                     disabled={loading || proxyLoading}
                   />
-                  <p className="text-xs sm:text-sm text-text-muted">Comma-separated hostnames/domains to bypass the proxy.</p>
+                  <p className="text-xs sm:text-sm text-text-muted">
+                    Comma-separated hostnames/domains to bypass the proxy.
+                  </p>
                 </div>
 
                 <div className="pt-2 border-t border-border/50 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
@@ -1583,7 +2359,12 @@ export default function ProfilePage() {
                   >
                     Test proxy URL
                   </Button>
-                  <Button type="submit" variant="primary" loading={proxyLoading} className="w-full sm:w-auto">
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    loading={proxyLoading}
+                    className="w-full sm:w-auto"
+                  >
                     Apply
                   </Button>
                 </div>
@@ -1591,7 +2372,9 @@ export default function ProfilePage() {
             )}
 
             {proxyStatus.message && (
-              <p className={`text-xs sm:text-sm ${proxyStatus.type === "error" ? "text-red-500" : "text-green-500"} pt-2 border-t border-border/50`}>
+              <p
+                className={`text-xs sm:text-sm ${proxyStatus.type === "error" ? "text-red-500" : "text-green-500"} pt-2 border-t border-border/50`}
+              >
                 {proxyStatus.message}
               </p>
             )}
@@ -1602,13 +2385,19 @@ export default function ProfilePage() {
         <Card>
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 rounded-lg bg-orange-500/10 text-orange-500 shrink-0">
-              <span className="material-symbols-outlined text-[20px]">monitoring</span>
+              <span className="material-symbols-outlined text-[20px]">
+                monitoring
+              </span>
             </div>
-            <h3 className="text-base sm:text-lg font-semibold">Observability</h3>
+            <h3 className="text-base sm:text-lg font-semibold">
+              Observability
+            </h3>
           </div>
           <div className="flex items-start sm:items-center justify-between gap-4">
             <div className="flex-1 min-w-0">
-              <p className="font-medium text-sm sm:text-base">Enable Observability</p>
+              <p className="font-medium text-sm sm:text-base">
+                Enable Observability
+              </p>
               <p className="text-xs sm:text-sm text-text-muted">
                 Record request details for inspection in the logs view
               </p>
@@ -1644,8 +2433,14 @@ export default function ProfilePage() {
 
         {/* App Info */}
         <div className="text-center text-xs sm:text-sm text-text-muted py-4">
-          <p>{APP_CONFIG.name} v{APP_CONFIG.version}</p>
-          <p className="mt-1">{isRemoteHost ? "Remote Mode" : "Local Mode - All data stored on your machine"}</p>
+          <p>
+            {APP_CONFIG.name} v{APP_CONFIG.version}
+          </p>
+          <p className="mt-1">
+            {isRemoteHost
+              ? "Remote Mode"
+              : "Local Mode - All data stored on your machine"}
+          </p>
         </div>
       </div>
 
@@ -1676,23 +2471,37 @@ export default function ProfilePage() {
         size="sm"
         footer={
           <>
-            <Button variant="ghost" onClick={() => setDbAuth({ open: false, mode: "", password: "" })} disabled={dbLoading}>
+            <Button
+              variant="ghost"
+              onClick={() => setDbAuth({ open: false, mode: "", password: "" })}
+              disabled={dbLoading}
+            >
               Cancel
             </Button>
-            <Button variant="primary" onClick={handleDbAuthConfirm} loading={dbLoading} disabled={!dbAuth.password}>
+            <Button
+              variant="primary"
+              onClick={handleDbAuthConfirm}
+              loading={dbLoading}
+              disabled={!dbAuth.password}
+            >
               Confirm
             </Button>
           </>
         }
       >
         <p className="text-text-muted mb-3 text-sm">
-          Enter your current password to {dbAuth.mode === "export" ? "export" : "import"} the database.
+          Enter your current password to{" "}
+          {dbAuth.mode === "export" ? "export" : "import"} the database.
         </p>
         <Input
           type="password"
           value={dbAuth.password}
-          onChange={(e) => setDbAuth((s) => ({ ...s, password: e.target.value }))}
-          onKeyDown={(e) => { if (e.key === "Enter" && dbAuth.password) handleDbAuthConfirm(); }}
+          onChange={(e) =>
+            setDbAuth((s) => ({ ...s, password: e.target.value }))
+          }
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && dbAuth.password) handleDbAuthConfirm();
+          }}
           placeholder="Current password"
           autoFocus
         />

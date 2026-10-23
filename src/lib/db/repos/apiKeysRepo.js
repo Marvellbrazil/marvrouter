@@ -1,6 +1,9 @@
 import { v4 as uuidv4 } from "uuid";
 import { getAdapter } from "../driver.js";
-import { keyAccessFromColumns, keyAccessToColumns } from "@/shared/utils/keyAccess.js";
+import {
+  keyAccessFromColumns,
+  keyAccessToColumns,
+} from "@/shared/utils/keyAccess.js";
 import { KEY_ACCESS_UNRESTRICTED } from "@/shared/constants/keyAccess.js";
 
 function rowToKey(row) {
@@ -36,6 +39,8 @@ export async function getApiKeyByKey(key) {
   return rowToKey(row);
 }
 
+export const getApiKeyBySecret = getApiKeyByKey;
+
 export async function createApiKey(name, machineId) {
   if (!machineId) throw new Error("machineId is required");
   const db = await getAdapter();
@@ -53,7 +58,16 @@ export async function createApiKey(name, machineId) {
   const cols = keyAccessToColumns(KEY_ACCESS_UNRESTRICTED);
   db.run(
     `INSERT INTO apiKeys(id, key, name, machineId, isActive, createdAt, accessRestricted, accessAllow) VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
-    [apiKey.id, apiKey.key, apiKey.name, apiKey.machineId, 1, apiKey.createdAt, cols.accessRestricted, cols.accessAllow]
+    [
+      apiKey.id,
+      apiKey.key,
+      apiKey.name,
+      apiKey.machineId,
+      1,
+      apiKey.createdAt,
+      cols.accessRestricted,
+      cols.accessAllow,
+    ],
   );
   return apiKey;
 }
@@ -68,7 +82,15 @@ export async function updateApiKey(id, data) {
     const cols = keyAccessToColumns(merged.access);
     db.run(
       `UPDATE apiKeys SET key = ?, name = ?, machineId = ?, isActive = ?, accessRestricted = ?, accessAllow = ? WHERE id = ?`,
-      [merged.key, merged.name, merged.machineId, merged.isActive ? 1 : 0, cols.accessRestricted, cols.accessAllow, id]
+      [
+        merged.key,
+        merged.name,
+        merged.machineId,
+        merged.isActive ? 1 : 0,
+        cols.accessRestricted,
+        cols.accessAllow,
+        id,
+      ],
     );
     result = rowToKey(db.get(`SELECT * FROM apiKeys WHERE id = ?`, [id]));
   });

@@ -8,10 +8,12 @@ import ProviderIcon from "@/shared/components/ProviderIcon";
 import HeaderMenu from "@/shared/components/HeaderMenu";
 import HeaderLanguage from "@/shared/components/HeaderLanguage";
 import ThemeToggle from "@/shared/components/ThemeToggle";
-import DonateModal from "@/shared/components/DonateModal";
 import { useHeaderSearchStore } from "@/store/headerSearchStore";
 import { OAUTH_PROVIDERS, APIKEY_PROVIDERS } from "@/shared/constants/config";
-import { MEDIA_PROVIDER_KINDS, AI_PROVIDERS } from "@/shared/constants/providers";
+import {
+  MEDIA_PROVIDER_KINDS,
+  AI_PROVIDERS,
+} from "@/shared/constants/providers";
 import { getProviderIconSrc } from "@/shared/utils/providerIcon";
 import { translate } from "@/i18n/runtime";
 
@@ -19,7 +21,9 @@ const getPageInfo = (pathname) => {
   if (!pathname) return { title: "", description: "", breadcrumbs: [] };
 
   // Media provider detail: /dashboard/media-providers/[kind]/[id]
-  const mediaDetailMatch = pathname.match(/\/media-providers\/([^/]+)\/([^/]+)$/);
+  const mediaDetailMatch = pathname.match(
+    /\/media-providers\/([^/]+)\/([^/]+)$/,
+  );
   if (mediaDetailMatch) {
     const kindId = mediaDetailMatch[1];
     const providerId = mediaDetailMatch[2];
@@ -29,9 +33,18 @@ const getPageInfo = (pathname) => {
       title: provider?.name || providerId,
       description: "",
       breadcrumbs: [
-        { label: "Media Providers", href: `/dashboard/media-providers/${kindId}` },
-        { label: kindConfig?.label || kindId, href: `/dashboard/media-providers/${kindId}` },
-        { label: provider?.name || providerId, image: getProviderIconSrc(providerId) },
+        {
+          label: "Media Providers",
+          href: `/dashboard/media-providers/${kindId}`,
+        },
+        {
+          label: kindConfig?.label || kindId,
+          href: `/dashboard/media-providers/${kindId}`,
+        },
+        {
+          label: provider?.name || providerId,
+          image: getProviderIconSrc(providerId),
+        },
       ],
     };
   }
@@ -137,7 +150,8 @@ const getPageInfo = (pathname) => {
   if (pathname.includes("/skills"))
     return {
       title: "Agent Skills",
-      description: "Copy a link and paste to your AI to use 9Router — no install needed",
+      description:
+        "Copy a link and paste to your AI to use 9Router — no install needed",
       icon: "extension",
       breadcrumbs: [],
     };
@@ -183,7 +197,6 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
   const pathname = usePathname();
   const [displayName, setDisplayName] = useState("");
   const [loginMethod, setLoginMethod] = useState("");
-  const [donateOpen, setDonateOpen] = useState(false);
 
   // Memoize page info to prevent unnecessary recalculations
   const pageInfo = useMemo(() => getPageInfo(pathname), [pathname]);
@@ -198,7 +211,14 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
         if (!res.ok) return;
         const data = await res.json();
         if (!cancelled) {
-          setDisplayName(data?.displayName || data?.samlName || data?.samlEmail || data?.oidcName || data?.oidcEmail || "");
+          setDisplayName(
+            data?.displayName ||
+              data?.samlName ||
+              data?.samlEmail ||
+              data?.oidcName ||
+              data?.oidcEmail ||
+              "",
+          );
           setLoginMethod(data?.loginMethod || "");
         }
       } catch {
@@ -248,7 +268,9 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
               <div
                 key={`${crumb.label}-${crumb.href || "current"}`}
                 className={`items-center gap-1.5 sm:gap-2 min-w-0 ${
-                  index < breadcrumbs.length - 1 ? "hidden sm:flex shrink-0" : "flex flex-1"
+                  index < breadcrumbs.length - 1
+                    ? "hidden sm:flex shrink-0"
+                    : "flex flex-1"
                 }`}
               >
                 {index > 0 && (
@@ -310,7 +332,9 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
             className="hidden sm:flex items-center max-w-[220px] px-3 py-1.5 rounded-full border border-border bg-surface/70 text-xs text-text-muted truncate"
             title={displayName}
           >
-            <span className="material-symbols-outlined text-[14px] mr-1.5 text-primary">person</span>
+            <span className="material-symbols-outlined text-[14px] mr-1.5 text-primary">
+              person
+            </span>
             <span className="truncate">{displayName}</span>
             <span className="ml-2 shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
               {loginMethod}
@@ -318,19 +342,10 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
           </div>
         )}
         <HeaderSearch />
-        <button
-          onClick={() => setDonateOpen(true)}
-          className="hidden sm:flex items-center gap-1.5 px-3 h-8 rounded-lg border border-pink-500/30 bg-pink-500/10 text-pink-600 dark:text-pink-400 hover:bg-pink-500/20 transition-colors text-sm font-medium"
-          aria-label="Donate"
-        >
-          <span className="material-symbols-outlined text-[18px]">volunteer_activism</span>
-          <span className="hidden sm:inline">Donate</span>
-        </button>
         <ThemeToggle />
         <HeaderLanguage />
         <HeaderMenu onLogout={handleLogout} />
       </div>
-      <DonateModal isOpen={donateOpen} onClose={() => setDonateOpen(false)} />
     </header>
   );
 }

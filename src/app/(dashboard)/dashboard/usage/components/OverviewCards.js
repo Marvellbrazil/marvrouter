@@ -1,34 +1,173 @@
 "use client";
 
+import { useState, useEffect, useMemo } from "react";
 import PropTypes from "prop-types";
 import Card from "@/shared/components/Card";
 
 const fmt = (n) => new Intl.NumberFormat().format(n || 0);
 const fmtCost = (n) => `$${(n || 0).toFixed(2)}`;
+const fmtIdr = (n) =>
+  `~Rp${new Intl.NumberFormat("id-ID").format(Math.round(n || 0))}`;
 
 export default function OverviewCards({ stats }) {
+  const [exchangeRate, setExchangeRate] = useState(16200);
+
+  useEffect(() => {
+    const CACHE_KEY = "rate_usd_idr";
+    const CACHE_TTL = 5 * 60 * 1000;
+    const FALLBACK_RATE = 16200;
+
+    let isMounted = true;
+
+    try {
+      const raw = localStorage.getItem(CACHE_KEY);
+      if (raw) {
+        const cached = JSON.parse(raw);
+        if (cached && typeof cached.rate === "number") {
+          setExchangeRate(cached.rate);
+          if (Date.now() - (cached.timestamp || 0) < CACHE_TTL) {
+            return;
+          }
+        }
+      }
+    } catch {}
+
+    fetch("https://open.er-api.com/v6/latest/USD")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!isMounted) return;
+        const rate = data?.rates?.IDR;
+        if (typeof rate === "number" && rate > 0) {
+          setExchangeRate(rate);
+          try {
+            localStorage.setItem(
+              CACHE_KEY,
+              JSON.stringify({ rate, timestamp: Date.now() }),
+            );
+          } catch {}
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const topModelText = useMemo(() => {
+    if (!stats?.byModel || typeof stats.byModel !== "object") return null;
+    let top = null;
+    for (const [key, val] of Object.entries(stats.byModel)) {
+      const count = val?.requests || 0;
+      if (count > 0 && (!top || count > top.requests)) {
+        const name = val?.rawModel || key;
+        top = { name, requests: count };
+      }
+    }
+    return top ? `${top.name} (${fmt(top.requests)})` : null;
+  }, [stats?.byModel]);
+
+  const throughput = useMemo(() => {
+    const reqsLast10 = Array.isArray(stats?.last10Minutes)
+      ? stats.last10Minutes.reduce((sum, b) => sum + (b?.requests || 0), 0)
+      : 0;
+    return Math.round(reqsLast10 * 6);
+  }, [stats?.last10Minutes]);
+
+  const totalReqs = stats?.totalRequests || 0;
+  const totalPrompt = stats?.totalPromptTokens || 0;
+  const totalCached = stats?.totalCachedTokens || 0;
+  const totalCompletion = stats?.totalCompletionTokens || 0;
+  const totalCost = stats?.totalCost || 0;
+
+  const card0Subtitle = topModelText || `~${fmt(throughput)} req/jam`;
+  const promptPerReq = totalReqs > 0 ? Math.round(totalPrompt / totalReqs) : 0;
+  const hitRate =
+    totalPrompt > 0 ? ((totalCached / totalPrompt) * 100).toFixed(2) : "0.00";
+  const ratio =
+    totalPrompt > 0 ? (totalCompletion / totalPrompt).toFixed(1) : "0.0";
+  const idrCost = totalCost * exchangeRate;
+
   return (
     <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 sm:gap-4">
       <Card className="flex min-w-0 flex-col items-center text-center gap-1 px-3 py-3 sm:px-4">
-        <span className="text-text-muted text-xs uppercase font-semibold sm:text-sm">Total Requests</span>
-        <span className="w-full truncate text-lg font-bold xl:text-xl" title={fmt(stats.totalRequests)}>{fmt(stats.totalRequests)}</span>
+        <span className="text-text-muted text-xs uppercase font-semibold sm:text-sm">
+          Total Requests
+        </span>
+        <span
+          className="w-full truncate text-lg font-bold xl:text-xl"
+          title={fmt(totalReqs)}
+        >
+          {fmt(totalReqs)}
+        </span>
+        <span
+          className="w-full truncate text-xs text-text-muted"
+          title={card0Subtitle}
+        >
+          {card0Subtitle}
+        </span>
       </Card>
       <Card className="flex min-w-0 flex-col items-center text-center gap-1 px-3 py-3 sm:px-4">
-        <span className="text-text-muted text-xs uppercase font-semibold sm:text-sm">Total Input Tokens</span>
-        <span className="w-full truncate text-lg font-bold text-primary xl:text-xl" title={fmt(stats.totalPromptTokens)}>{fmt(stats.totalPromptTokens)}</span>
+        <span className="text-text-muted text-xs uppercase font-semibold sm:text-sm">
+          Total Input Tokens
+        </span>
+        <span
+          className="w-full truncate text-lg font-bold text-primary xl:text-xl"
+          title={fmt(totalPrompt)}
+        >
+          {fmt(totalPrompt)}
+        </span>
+        <span className="w-full truncate text-xs text-text-muted">
+          ~{fmt(promptPerReq)} tok/req
+        </span>
       </Card>
       <Card className="flex min-w-0 flex-col items-center text-center gap-1 px-3 py-3 sm:px-4">
-        <span className="text-text-muted text-xs uppercase font-semibold sm:text-sm">Cached Tokens</span>
-        <span className="w-full truncate text-lg font-bold text-info xl:text-xl" title={fmt(stats.totalCachedTokens)}>{fmt(stats.totalCachedTokens)}</span>
+        <span className="text-text-muted text-xs uppercase font-semibold sm:text-sm">
+          Cached Tokens
+        </span>
+        <span
+          className="w-full truncate text-lg font-bold text-info xl:text-xl"
+          title={fmt(totalCached)}
+        >
+          {fmt(totalCached)}
+        </span>
+        <span className="w-full truncate text-xs text-text-muted">
+          {hitRate}% hit rate
+        </span>
       </Card>
       <Card className="flex min-w-0 flex-col items-center text-center gap-1 px-3 py-3 sm:px-4">
-        <span className="text-text-muted text-xs uppercase font-semibold sm:text-sm">Output Tokens</span>
-        <span className="w-full truncate text-lg font-bold text-success xl:text-xl" title={fmt(stats.totalCompletionTokens)}>{fmt(stats.totalCompletionTokens)}</span>
+        <span className="text-text-muted text-xs uppercase font-semibold sm:text-sm">
+          Output Tokens
+        </span>
+        <span
+          className="w-full truncate text-lg font-bold text-success xl:text-xl"
+          title={fmt(totalCompletion)}
+        >
+          {fmt(totalCompletion)}
+        </span>
+        <span className="w-full truncate text-xs text-text-muted">
+          1 : {ratio} ratio
+        </span>
       </Card>
       <Card className="flex min-w-0 flex-col items-center text-center gap-1 px-3 py-3 sm:px-4">
-        <span className="text-text-muted text-xs uppercase font-semibold sm:text-sm">Est. Cost</span>
-        <span className="w-full truncate text-lg font-bold text-warning xl:text-xl" title={`~${fmtCost(stats.totalCost)}`}>~{fmtCost(stats.totalCost)}</span>
-        <span className="text-[10px] text-text-muted">Estimated, not actual billing</span>
+        <span className="text-text-muted text-xs uppercase font-semibold sm:text-sm">
+          Est. Cost
+        </span>
+        <span
+          className="w-full truncate text-lg font-bold text-warning xl:text-xl"
+          title={`~${fmtCost(totalCost)}`}
+        >
+          ~{fmtCost(totalCost)}
+        </span>
+        <span
+          className="w-full truncate text-xs text-text-muted"
+          title={fmtIdr(idrCost)}
+        >
+          {fmtIdr(idrCost)}
+        </span>
+        <span className="text-[10px] text-text-muted">
+          Estimated, not actual billing
+        </span>
       </Card>
     </div>
   );
