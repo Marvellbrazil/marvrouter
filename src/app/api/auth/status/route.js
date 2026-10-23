@@ -9,7 +9,9 @@ export async function GET() {
   try {
     const settings = await getSettings();
     const cookieStore = await cookies();
-    const session = await getDashboardAuthSession(cookieStore.get("auth_token")?.value);
+    const session = await getDashboardAuthSession(
+      cookieStore.get("auth_token")?.value,
+    );
     const requireLogin = settings.requireLogin !== false;
     const authMode = settings.authMode || "password";
     const ssoType = settings.ssoType || "oidc";
@@ -23,18 +25,33 @@ export async function GET() {
       samlEmail ||
       oidcName ||
       oidcEmail ||
-      (session?.saml ? "SAML user" : session?.oidc ? "OIDC user" : "Password user");
+      (session?.saml
+        ? "SAML user"
+        : session?.oidc
+          ? "OIDC user"
+          : "Password user");
 
-    const loginMethod = session?.saml ? "SAML" : session?.oidc ? "OIDC" : "Password";
+    const loginMethod = session?.saml
+      ? "SAML"
+      : session?.oidc
+        ? "OIDC"
+        : "Password";
 
     return NextResponse.json({
       requireLogin,
       authMode,
       ssoType,
+      require2fa: !!settings.totpEnabled,
+      hasUsername: !!settings.username,
+      username: settings.username || "admin",
       oidcConfigured: isOidcConfigured(settings),
-      oidcLoginLabel: (settings.oidcLoginLabel || "Sign in with OIDC").trim() || "Sign in with OIDC",
+      oidcLoginLabel:
+        (settings.oidcLoginLabel || "Sign in with OIDC").trim() ||
+        "Sign in with OIDC",
       samlConfigured: isSamlConfigured(settings),
-      samlLoginLabel: (settings.samlLoginLabel || "Sign in with SAML SSO").trim() || "Sign in with SAML SSO",
+      samlLoginLabel:
+        (settings.samlLoginLabel || "Sign in with SAML SSO").trim() ||
+        "Sign in with SAML SSO",
       hasPassword: !!settings.password,
       displayName,
       loginMethod,
@@ -51,6 +68,9 @@ export async function GET() {
       requireLogin: true,
       authMode: "password",
       ssoType: "oidc",
+      require2fa: false,
+      hasUsername: false,
+      username: "admin",
       oidcConfigured: false,
       oidcLoginLabel: "Sign in with OIDC",
       samlConfigured: false,
