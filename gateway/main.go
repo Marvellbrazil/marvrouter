@@ -37,12 +37,19 @@ func main() {
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
 
+	r.Get("/__shim_health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true,"shim":"go-native-gateway"}`))
+	})
+
 	r.Route("/v1", func(v1 chi.Router) {
 		v1.Use(middleware.Auth)
 
 		v1.Get("/models", handlers.Models)
 		v1.Get("/quota", handlers.Quota)
 		v1.Post("/chat/completions", handlers.NewChatCompletionsProxy())
+		v1.Post("/messages", handlers.MessagesHandler())
 	})
 
 	addr := port
