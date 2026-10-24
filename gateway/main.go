@@ -52,6 +52,8 @@ func main() {
 		v1.Post("/messages", handlers.MessagesHandler())
 	})
 
+	r.NotFound(handlers.NewCatchAllReverseProxy())
+
 	addr := port
 	log.Printf("Starting 9router gateway on %s\n", addr)
 	if err := http.ListenAndServe(addr, r); err != nil {

@@ -4,10 +4,14 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -16,18 +20,17 @@ import (
 )
 
 type AnthropicRequest struct {
-	Model               string            `json:"model"`
-	Messages            []AnthropicMsg    `json:"messages"`
-	System              any               `json:"system,omitempty"`
-	MaxTokens           *int              `json:"max_tokens,omitempty"`
-	MaxCompletionTokens *int              `json:"max_completion_tokens,omitempty"`
-	Temperature         *float64          `json:"temperature,omitempty"`
-	TopP                *float64          `json:"top_p,omitempty"`
-	Stream              bool              `json:"stream,omitempty"`
-	Tools               []any             `json:"tools,omitempty"`
-	ToolChoice          any               `json:"tool_choice,omitempty"`
-	Metadata            map[string]any    `json:"metadata,omitempty"`
-	Extra               map[string]any    `json:"-"`
+	Model               string         `json:"model"`
+	Messages            []AnthropicMsg `json:"messages"`
+	System              any            `json:"system,omitempty"`
+	MaxTokens           *int           `json:"max_tokens,omitempty"`
+	MaxCompletionTokens *int           `json:"max_completion_tokens,omitempty"`
+	Temperature         *float64       `json:"temperature,omitempty"`
+	TopP                *float64       `json:"top_p,omitempty"`
+	Stream              bool           `json:"stream,omitempty"`
+	Tools               []any          `json:"tools,omitempty"`
+	ToolChoice          any            `json:"tool_choice,omitempty"`
+	Metadata            map[string]any `json:"metadata,omitempty"`
 }
 
 type AnthropicMsg struct {
@@ -36,22 +39,34 @@ type AnthropicMsg struct {
 }
 
 type OpenAiRequest struct {
-	Model               string         `json:"model"`
-	Messages            []OpenAiMsg    `json:"messages"`
-	MaxTokens           *int           `json:"max_tokens,omitempty"`
-	MaxCompletionTokens *int           `json:"max_completion_tokens,omitempty"`
-	Temperature         *float64       `json:"temperature,omitempty"`
-	TopP                *float64       `json:"top_p,omitempty"`
-	Stream              bool           `json:"stream,omitempty"`
-	Tools               []any          `json:"tools,omitempty"`
-	ToolChoice          any            `json:"tool_choice,omitempty"`
+	Model               string      `json:"model"`
+	Messages            []OpenAiMsg `json:"messages"`
+	MaxTokens           *int        `json:"max_tokens,omitempty"`
+	MaxCompletionTokens *int        `json:"max_completion_tokens,omitempty"`
+	Temperature         *float64    `json:"temperature,omitempty"`
+	TopP                *float64    `json:"top_p,omitempty"`
+	Stream              bool        `json:"stream,omitempty"`
+	Tools               []any       `json:"tools,omitempty"`
+	ToolChoice          any         `json:"tool_choice,omitempty"`
 }
 
 type OpenAiMsg struct {
-	Role       string `json:"role"`
-	Content    any    `json:"content,omitempty"`
-	ToolCallID string `json:"tool_call_id,omitempty"`
-	Name       string `json:"name,omitempty"`
+	Role       string     `json:"role"`
+	Content    any        `json:"content,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
+	Name       string     `json:"name,omitempty"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+}
+
+type ToolCall struct {
+	ID       string       `json:"id"`
+	Type     string       `json:"type"`
+	Function FunctionCall `json:"function"`
+}
+
+type FunctionCall struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
 }
 
 func parseSystemPrompt(sys any) string {
@@ -91,8 +106,6 @@ func convertAnthropicToOpenAi(ar *AnthropicRequest) *OpenAiRequest {
 		Temperature:         ar.Temperature,
 		TopP:                ar.TopP,
 		Stream:              ar.Stream,
-		Tools:               ar.Tools,
-		ToolChoice:          ar.ToolChoice,
 	}
 
 	sysPrompt := parseSystemPrompt(ar.System)
@@ -111,46 +124,144 @@ func convertAnthropicToOpenAi(ar *AnthropicRequest) *OpenAiRequest {
 				Content: c,
 			})
 		case []any:
-			var textParts []string
-			for _, item := range c {
-				m, ok := item.(map[string]any)
-				if !ok {
-					continue
-				}
-				itemType, _ := m["type"].(string)
-				switch itemType {
-				case "text":
-					if t, ok := m["text"].(string); ok {
-						textParts = append(textParts, t)
+			if msg.Role == "assistant" {
+				var textContent string
+				var toolCalls []ToolCall
+				for _, item := range c {
+					m, ok := item.(map[string]any)
+					if !ok {
+						continue
 					}
-				case "tool_result":
-					toolUseId, _ := m["tool_use_id"].(string)
-					contentStr := ""
-					if rc, ok := m["content"].(string); ok {
-						contentStr = rc
-					} else if rcArr, ok := m["content"].([]any); ok {
-						var sb strings.Builder
-						for _, rci := range rcArr {
-							if rcm, ok := rci.(map[string]any); ok {
-								if rct, ok := rcm["text"].(string); ok {
-									sb.WriteString(rct)
+					itemType, _ := m["type"].(string)
+					if itemType == "text" {
+						if t, ok := m["text"].(string); ok {
+							if textContent != "" {
+								textContent += "\n"
+							}
+							textContent += t
+						}
+					} else if itemType == "tool_use" {
+						id, _ := m["id"].(string)
+						name, _ := m["name"].(string)
+						var argsStr string
+						if rawInput, ok := m["input"].(string); ok {
+							argsStr = rawInput
+						} else if m["input"] != nil {
+							b, _ := json.Marshal(m["input"])
+							argsStr = string(b)
+						} else {
+							argsStr = "{}"
+						}
+						toolCalls = append(toolCalls, ToolCall{
+							ID:   id,
+							Type: "function",
+							Function: FunctionCall{
+								Name:      name,
+								Arguments: argsStr,
+							},
+						})
+					}
+				}
+				var finalContent any = textContent
+				if textContent == "" && len(toolCalls) > 0 {
+					finalContent = nil
+				}
+				req.Messages = append(req.Messages, OpenAiMsg{
+					Role:      "assistant",
+					Content:   finalContent,
+					ToolCalls: toolCalls,
+				})
+			} else {
+				var textParts []string
+				for _, item := range c {
+					m, ok := item.(map[string]any)
+					if !ok {
+						continue
+					}
+					itemType, _ := m["type"].(string)
+					if itemType == "text" {
+						if t, ok := m["text"].(string); ok {
+							textParts = append(textParts, t)
+						}
+					} else if itemType == "tool_result" {
+						toolUseId, _ := m["tool_use_id"].(string)
+						contentStr := ""
+						if rc, ok := m["content"].(string); ok {
+							contentStr = rc
+						} else if rcArr, ok := m["content"].([]any); ok {
+							var sb strings.Builder
+							for _, rci := range rcArr {
+								if rcm, ok := rci.(map[string]any); ok {
+									if rct, ok := rcm["text"].(string); ok {
+										sb.WriteString(rct)
+									}
 								}
 							}
+							contentStr = sb.String()
+						} else if m["content"] != nil {
+							b, _ := json.Marshal(m["content"])
+							contentStr = string(b)
 						}
-						contentStr = sb.String()
+						req.Messages = append(req.Messages, OpenAiMsg{
+							Role:       "tool",
+							ToolCallID: toolUseId,
+							Content:    contentStr,
+						})
 					}
+				}
+				if len(textParts) > 0 {
 					req.Messages = append(req.Messages, OpenAiMsg{
-						Role:       "tool",
-						ToolCallID: toolUseId,
-						Content:    contentStr,
+						Role:    msg.Role,
+						Content: strings.Join(textParts, "\n\n"),
 					})
 				}
 			}
-			if len(textParts) > 0 {
-				req.Messages = append(req.Messages, OpenAiMsg{
-					Role:    msg.Role,
-					Content: strings.Join(textParts, "\n\n"),
+		}
+	}
+
+	if len(ar.Tools) > 0 {
+		for _, t := range ar.Tools {
+			if tm, ok := t.(map[string]any); ok {
+				name, _ := tm["name"].(string)
+				description, _ := tm["description"].(string)
+				params := tm["input_schema"]
+				if params == nil {
+					params = map[string]any{
+						"type":       "object",
+						"properties": map[string]any{},
+					}
+				}
+				req.Tools = append(req.Tools, map[string]any{
+					"type": "function",
+					"function": map[string]any{
+						"name":        name,
+						"description": description,
+						"parameters":  params,
+					},
 				})
+			}
+		}
+
+		if ar.ToolChoice != nil {
+			if tcStr, ok := ar.ToolChoice.(string); ok {
+				req.ToolChoice = tcStr
+			} else if tcMap, ok := ar.ToolChoice.(map[string]any); ok {
+				tcType, _ := tcMap["type"].(string)
+				switch tcType {
+				case "auto":
+					req.ToolChoice = "auto"
+				case "any":
+					req.ToolChoice = "required"
+				case "tool":
+					if tcName, ok := tcMap["name"].(string); ok {
+						req.ToolChoice = map[string]any{
+							"type": "function",
+							"function": map[string]any{
+								"name": tcName,
+							},
+						}
+					}
+				}
 			}
 		}
 	}
@@ -236,8 +347,9 @@ func MessagesHandler() http.HandlerFunc {
 				Model   string `json:"model"`
 				Choices []struct {
 					Message struct {
-						Role    string `json:"role"`
-						Content string `json:"content"`
+						Role      string     `json:"role"`
+						Content   string     `json:"content"`
+						ToolCalls []ToolCall `json:"tool_calls"`
 					} `json:"message"`
 					FinishReason string `json:"finish_reason"`
 				} `json:"choices"`
@@ -251,26 +363,42 @@ func MessagesHandler() http.HandlerFunc {
 				return
 			}
 
-			text := ""
+			var contentBlocks []any
 			stopReason := "end_turn"
+
 			if len(openAiResp.Choices) > 0 {
-				text = openAiResp.Choices[0].Message.Content
-				if openAiResp.Choices[0].FinishReason == "length" {
+				choice := openAiResp.Choices[0]
+				if choice.Message.Content != "" {
+					contentBlocks = append(contentBlocks, map[string]any{
+						"type": "text",
+						"text": choice.Message.Content,
+					})
+				}
+				for _, tc := range choice.Message.ToolCalls {
+					var parsedInput any
+					if err := json.Unmarshal([]byte(tc.Function.Arguments), &parsedInput); err != nil {
+						parsedInput = map[string]any{"raw": tc.Function.Arguments}
+					}
+					contentBlocks = append(contentBlocks, map[string]any{
+						"type":  "tool_use",
+						"id":    tc.ID,
+						"name":  tc.Function.Name,
+						"input": parsedInput,
+					})
+				}
+				if choice.FinishReason == "tool_calls" || choice.FinishReason == "function_call" {
+					stopReason = "tool_use"
+				} else if choice.FinishReason == "length" {
 					stopReason = "max_tokens"
 				}
 			}
 
 			out := map[string]any{
-				"id":    openAiResp.ID,
-				"type":  "message",
-				"role":  "assistant",
-				"model": anthropicReq.Model,
-				"content": []any{
-					map[string]any{
-						"type": "text",
-						"text": text,
-					},
-				},
+				"id":            openAiResp.ID,
+				"type":          "message",
+				"role":          "assistant",
+				"model":         anthropicReq.Model,
+				"content":       contentBlocks,
 				"stop_reason":   stopReason,
 				"stop_sequence": nil,
 				"usage": map[string]any{
@@ -343,8 +471,9 @@ func streamOpenAiToAnthropic(ctx context.Context, upstream io.Reader, w http.Res
 	scanner := bufio.NewScanner(upstream)
 	scanner.Buffer(make([]byte, 1024*1024), 10*1024*1024)
 
-	var textBlockStarted bool
-	var blockIndex int
+	var currentBlockType string
+	var currentBlockIndex = -1
+	var currentToolCallID string
 	var outputTokens int
 	stopReason := "end_turn"
 
@@ -361,7 +490,16 @@ func streamOpenAiToAnthropic(ctx context.Context, upstream io.Reader, w http.Res
 		var chunk struct {
 			Choices []struct {
 				Delta struct {
-					Content string `json:"content"`
+					Content   string `json:"content"`
+					ToolCalls []struct {
+						Index    int    `json:"index"`
+						ID       string `json:"id"`
+						Type     string `json:"type"`
+						Function struct {
+							Name      string `json:"name"`
+							Arguments string `json:"arguments"`
+						} `json:"function"`
+					} `json:"tool_calls"`
 				} `json:"delta"`
 				FinishReason string `json:"finish_reason"`
 			} `json:"choices"`
@@ -373,11 +511,18 @@ func streamOpenAiToAnthropic(ctx context.Context, upstream io.Reader, w http.Res
 
 		for _, choice := range chunk.Choices {
 			if choice.Delta.Content != "" {
-				if !textBlockStarted {
-					textBlockStarted = true
+				if currentBlockType != "text" {
+					if currentBlockType != "" {
+						sendSse(w, flusher, "content_block_stop", map[string]any{
+							"type":  "content_block_stop",
+							"index": currentBlockIndex,
+						})
+					}
+					currentBlockIndex++
+					currentBlockType = "text"
 					sendSse(w, flusher, "content_block_start", map[string]any{
 						"type":  "content_block_start",
-						"index": blockIndex,
+						"index": currentBlockIndex,
 						"content_block": map[string]any{
 							"type": "text",
 							"text": "",
@@ -387,7 +532,7 @@ func streamOpenAiToAnthropic(ctx context.Context, upstream io.Reader, w http.Res
 				outputTokens++
 				sendSse(w, flusher, "content_block_delta", map[string]any{
 					"type":  "content_block_delta",
-					"index": blockIndex,
+					"index": currentBlockIndex,
 					"delta": map[string]any{
 						"type": "text_delta",
 						"text": choice.Delta.Content,
@@ -395,11 +540,60 @@ func streamOpenAiToAnthropic(ctx context.Context, upstream io.Reader, w http.Res
 				})
 			}
 
+			if len(choice.Delta.ToolCalls) > 0 {
+				for _, tc := range choice.Delta.ToolCalls {
+					tcID := tc.ID
+					if tcID == "" {
+						tcID = currentToolCallID
+					}
+					if tcID == "" {
+						b := make([]byte, 4)
+						_, _ = rand.Read(b)
+						tcID = "call_" + hex.EncodeToString(b)
+					}
+					fnName := tc.Function.Name
+
+					if currentBlockType != "tool_use" || (tc.ID != "" && tc.ID != currentToolCallID) {
+						if currentBlockType != "" {
+							sendSse(w, flusher, "content_block_stop", map[string]any{
+								"type":  "content_block_stop",
+								"index": currentBlockIndex,
+							})
+						}
+						currentBlockIndex++
+						currentBlockType = "tool_use"
+						currentToolCallID = tcID
+						sendSse(w, flusher, "content_block_start", map[string]any{
+							"type":  "content_block_start",
+							"index": currentBlockIndex,
+							"content_block": map[string]any{
+								"type":  "tool_use",
+								"id":    tcID,
+								"name":  fnName,
+								"input": map[string]any{},
+							},
+						})
+					}
+
+					if tc.Function.Arguments != "" {
+						outputTokens++
+						sendSse(w, flusher, "content_block_delta", map[string]any{
+							"type":  "content_block_delta",
+							"index": currentBlockIndex,
+							"delta": map[string]any{
+								"type":         "input_json_delta",
+								"partial_json": tc.Function.Arguments,
+							},
+						})
+					}
+				}
+			}
+
 			if choice.FinishReason != "" {
-				if choice.FinishReason == "length" {
-					stopReason = "max_tokens"
-				} else if choice.FinishReason == "tool_calls" {
+				if choice.FinishReason == "tool_calls" || choice.FinishReason == "function_call" {
 					stopReason = "tool_use"
+				} else if choice.FinishReason == "length" {
+					stopReason = "max_tokens"
 				} else {
 					stopReason = "end_turn"
 				}
@@ -407,10 +601,10 @@ func streamOpenAiToAnthropic(ctx context.Context, upstream io.Reader, w http.Res
 		}
 	}
 
-	if textBlockStarted {
+	if currentBlockType != "" {
 		sendSse(w, flusher, "content_block_stop", map[string]any{
 			"type":  "content_block_stop",
-			"index": blockIndex,
+			"index": currentBlockIndex,
 		})
 	}
 
@@ -428,4 +622,16 @@ func streamOpenAiToAnthropic(ctx context.Context, upstream io.Reader, w http.Res
 	sendSse(w, flusher, "message_stop", map[string]any{
 		"type": "message_stop",
 	})
+}
+
+func NewCatchAllReverseProxy() http.HandlerFunc {
+	target := os.Getenv("NEXT_BACKEND_URL")
+	if target == "" {
+		target = "http://127.0.0.1:20128"
+	}
+	targetURL, _ := url.Parse(target)
+	proxy := httputil.NewSingleHostReverseProxy(targetURL)
+	return func(w http.ResponseWriter, r *http.Request) {
+		proxy.ServeHTTP(w, r)
+	}
 }
