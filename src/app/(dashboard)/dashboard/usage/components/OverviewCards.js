@@ -13,20 +13,31 @@ export default function OverviewCards({ stats }) {
   const [exchangeRate, setExchangeRate] = useState(16200);
 
   useEffect(() => {
-    const CACHE_KEY = "rate_usd_idr";
+    const CACHE_KEY_RATE = "app_usd_idr_rate";
+    const CACHE_KEY_TIME = "app_usd_idr_time";
+    const LEGACY_CACHE_KEY = "rate_usd_idr";
     const CACHE_TTL = 5 * 60 * 1000;
     const FALLBACK_RATE = 16200;
 
     let isMounted = true;
 
     try {
-      const raw = localStorage.getItem(CACHE_KEY);
-      if (raw) {
-        const cached = JSON.parse(raw);
-        if (cached && typeof cached.rate === "number") {
-          setExchangeRate(cached.rate);
-          if (Date.now() - (cached.timestamp || 0) < CACHE_TTL) {
-            return;
+      const storedRate = parseFloat(localStorage.getItem(CACHE_KEY_RATE));
+      const lastSync = parseInt(localStorage.getItem(CACHE_KEY_TIME), 10) || 0;
+      if (storedRate && !isNaN(storedRate) && storedRate > 0) {
+        setExchangeRate(storedRate);
+        if (Date.now() - lastSync < CACHE_TTL) {
+          return;
+        }
+      } else {
+        const rawLegacy = localStorage.getItem(LEGACY_CACHE_KEY);
+        if (rawLegacy) {
+          const parsed = JSON.parse(rawLegacy);
+          if (parsed && typeof parsed.rate === "number") {
+            setExchangeRate(parsed.rate);
+            if (Date.now() - (parsed.timestamp || 0) < CACHE_TTL) {
+              return;
+            }
           }
         }
       }
@@ -40,8 +51,10 @@ export default function OverviewCards({ stats }) {
         if (typeof rate === "number" && rate > 0) {
           setExchangeRate(rate);
           try {
+            localStorage.setItem(CACHE_KEY_RATE, rate.toString());
+            localStorage.setItem(CACHE_KEY_TIME, Date.now().toString());
             localStorage.setItem(
-              CACHE_KEY,
+              LEGACY_CACHE_KEY,
               JSON.stringify({ rate, timestamp: Date.now() }),
             );
           } catch {}
@@ -60,19 +73,12 @@ export default function OverviewCards({ stats }) {
     for (const [key, val] of Object.entries(stats.byModel)) {
       const count = val?.requests || 0;
       if (count > 0 && (!top || count > top.requests)) {
-        const name = val?.rawModel || key;
+        const name = val?.rawModel || key.split(" ")[0] || key;
         top = { name, requests: count };
       }
     }
     return top ? `${top.name} (${fmt(top.requests)})` : null;
   }, [stats?.byModel]);
-
-  const throughput = useMemo(() => {
-    const reqsLast10 = Array.isArray(stats?.last10Minutes)
-      ? stats.last10Minutes.reduce((sum, b) => sum + (b?.requests || 0), 0)
-      : 0;
-    return Math.round(reqsLast10 * 6);
-  }, [stats?.last10Minutes]);
 
   const totalReqs = stats?.totalRequests || 0;
   const totalPrompt = stats?.totalPromptTokens || 0;
@@ -80,12 +86,13 @@ export default function OverviewCards({ stats }) {
   const totalCompletion = stats?.totalCompletionTokens || 0;
   const totalCost = stats?.totalCost || 0;
 
-  const card0Subtitle = topModelText || `~${fmt(throughput)} req/jam`;
+  const reqPerHour = (totalReqs / 24).toFixed(1);
+  const card0Subtitle = topModelText || `~${reqPerHour} req/jam`;
   const promptPerReq = totalReqs > 0 ? Math.round(totalPrompt / totalReqs) : 0;
   const hitRate =
     totalPrompt > 0 ? ((totalCached / totalPrompt) * 100).toFixed(2) : "0.00";
   const ratio =
-    totalPrompt > 0 ? (totalCompletion / totalPrompt).toFixed(1) : "0.0";
+    totalCompletion > 0 ? (totalPrompt / totalCompletion).toFixed(1) : "0.0";
   const idrCost = totalCost * exchangeRate;
 
   return (
