@@ -270,15 +270,19 @@ func convertAnthropicToOpenAi(ar *AnthropicRequest) *OpenAiRequest {
 }
 
 func MessagesHandler() http.HandlerFunc {
-	target := os.Getenv("NEXT_BACKEND_URL")
-	if target == "" {
-		target = "http://127.0.0.1:20128"
-	}
-
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
+		}
+
+		primary := os.Getenv("NEXT_BACKEND_URL")
+		if primary == "" {
+			primary = "http://127.0.0.1:20128"
+		}
+		fallback := "http://127.0.0.1:20128"
+		if primary == fallback {
+			fallback = "http://127.0.0.1:20127"
 		}
 
 		bodyBytes, err := io.ReadAll(r.Body)
@@ -300,32 +304,35 @@ func MessagesHandler() http.HandlerFunc {
 			return
 		}
 
-		upstreamURL := target + "/v1/chat/completions"
-		upstreamReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, upstreamURL, bytes.NewReader(openAiBytes))
-		if err != nil {
-			http.Error(w, "Failed to create upstream request", http.StatusInternalServerError)
-			return
-		}
-
-		for k, v := range r.Header {
-			lower := strings.ToLower(k)
-			if lower == "content-length" || lower == "host" || lower == "accept-encoding" {
-				continue
+		makeRequest := func(targetHost string) (*http.Response, error) {
+			upstreamURL := targetHost + "/v1/chat/completions"
+			upstreamReq, reqErr := http.NewRequestWithContext(r.Context(), http.MethodPost, upstreamURL, bytes.NewReader(openAiBytes))
+			if reqErr != nil {
+				return nil, reqErr
 			}
-			upstreamReq.Header[k] = v
-		}
-		upstreamReq.Header.Set("Content-Type", "application/json")
 
-		apiKey := r.Header.Get("x-api-key")
-		if apiKey != "" && upstreamReq.Header.Get("Authorization") == "" {
-			upstreamReq.Header.Set("Authorization", "Bearer "+apiKey)
+			for k, v := range r.Header {
+				lower := strings.ToLower(k)
+				if lower == "content-length" || lower == "host" || lower == "accept-encoding" {
+					continue
+				}
+				upstreamReq.Header[k] = v
+			}
+			upstreamReq.Header.Set("Content-Type", "application/json")
+
+			apiKey := r.Header.Get("x-api-key")
+			if apiKey != "" && upstreamReq.Header.Get("Authorization") == "" {
+				upstreamReq.Header.Set("Authorization", "Bearer "+apiKey)
+			}
+
+			client := &http.Client{Timeout: 0}
+			return client.Do(upstreamReq)
 		}
 
-		client := &http.Client{
-			Timeout: 0,
+		resp, err := makeRequest(primary)
+		if err != nil && primary != fallback && fallback != "" {
+			resp, err = makeRequest(fallback)
 		}
-
-		resp, err := client.Do(upstreamReq)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Upstream request failed: %v", err), http.StatusBadGateway)
 			return
@@ -625,13 +632,27 @@ func streamOpenAiToAnthropic(ctx context.Context, upstream io.Reader, w http.Res
 }
 
 func NewCatchAllReverseProxy() http.HandlerFunc {
-	target := os.Getenv("NEXT_BACKEND_URL")
-	if target == "" {
-		target = "http://127.0.0.1:20128"
-	}
-	targetURL, _ := url.Parse(target)
-	proxy := httputil.NewSingleHostReverseProxy(targetURL)
 	return func(w http.ResponseWriter, r *http.Request) {
+		primary := os.Getenv("NEXT_BACKEND_URL")
+		if primary == "" {
+			primary = "http://127.0.0.1:20128"
+		}
+		fallback := "http://127.0.0.1:20128"
+		if primary == fallback {
+			fallback = "http://127.0.0.1:20127"
+		}
+
+		targetURL, _ := url.Parse(primary)
+		proxy := httputil.NewSingleHostReverseProxy(targetURL)
+		proxy.ErrorHandler = func(rw http.ResponseWriter, req *http.Request, proxyErr error) {
+			if fallback != "" && primary != fallback {
+				fbURL, _ := url.Parse(fallback)
+				fbProxy := httputil.NewSingleHostReverseProxy(fbURL)
+				fbProxy.ServeHTTP(rw, req)
+				return
+			}
+			http.Error(rw, "Backend unavailable", http.StatusBadGateway)
+		}
 		proxy.ServeHTTP(w, r)
 	}
 }

@@ -11,42 +11,46 @@ import (
 )
 
 func NewChatCompletionsProxy() http.HandlerFunc {
-	target := os.Getenv("NEXT_BACKEND_URL")
-	if target == "" {
-		target = "http://127.0.0.1:20128"
-	}
-
 	return func(w http.ResponseWriter, r *http.Request) {
+		primary := os.Getenv("NEXT_BACKEND_URL")
+		if primary == "" {
+			primary = "http://127.0.0.1:20128"
+		}
+		fallback := "http://127.0.0.1:20128"
+		if primary == fallback {
+			fallback = "http://127.0.0.1:20127"
+		}
+
 		bodyBytes, err := io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, "Failed to read request body", http.StatusBadRequest)
 			return
 		}
 
-		upstreamURL := target + r.URL.Path
-		if r.URL.RawQuery != "" {
-			upstreamURL += "?" + r.URL.RawQuery
-		}
-
-		upstreamReq, err := http.NewRequestWithContext(r.Context(), r.Method, upstreamURL, bytes.NewReader(bodyBytes))
-		if err != nil {
-			http.Error(w, "Failed to construct upstream request", http.StatusInternalServerError)
-			return
-		}
-
-		for k, v := range r.Header {
-			lower := strings.ToLower(k)
-			if lower == "content-length" || lower == "host" || lower == "accept-encoding" {
-				continue
+		makeRequest := func(targetHost string) (*http.Response, error) {
+			upstreamURL := targetHost + r.URL.Path
+			if r.URL.RawQuery != "" {
+				upstreamURL += "?" + r.URL.RawQuery
 			}
-			upstreamReq.Header[k] = v
+			upstreamReq, reqErr := http.NewRequestWithContext(r.Context(), r.Method, upstreamURL, bytes.NewReader(bodyBytes))
+			if reqErr != nil {
+				return nil, reqErr
+			}
+			for k, v := range r.Header {
+				lower := strings.ToLower(k)
+				if lower == "content-length" || lower == "host" || lower == "accept-encoding" {
+					continue
+				}
+				upstreamReq.Header[k] = v
+			}
+			client := &http.Client{Timeout: 0}
+			return client.Do(upstreamReq)
 		}
 
-		client := &http.Client{
-			Timeout: 0,
+		resp, err := makeRequest(primary)
+		if err != nil && primary != fallback && fallback != "" {
+			resp, err = makeRequest(fallback)
 		}
-
-		resp, err := client.Do(upstreamReq)
 		if err != nil {
 			http.Error(w, "Upstream connection failed", http.StatusBadGateway)
 			return

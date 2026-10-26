@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -29,7 +30,7 @@ func findFreePort() (int, error) {
 	return l.Addr().(*net.TCPAddr).Port, nil
 }
 
-func startNextJsProcess(ctx context.Context, internalPort int) (*exec.Cmd, error) {
+func createNextJsCmd(ctx context.Context, internalPort int) (*exec.Cmd, string, error) {
 	appDir := os.Getenv("NEXT_APP_DIR")
 	if appDir == "" {
 		execPath, err := os.Executable()
@@ -60,40 +61,80 @@ func startNextJsProcess(ctx context.Context, internalPort int) (*exec.Cmd, error
 		serverJs = filepath.Join(appDir, "server.js")
 	}
 
-	cmd := exec.CommandContext(ctx, "node", serverJs)
-	cmd.Dir = appDir
-	cmd.Env = append(os.Environ(),
-		fmt.Sprintf("PORT=%d", internalPort),
-		"HOSTNAME=127.0.0.1",
-	)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Start(); err != nil {
-		return nil, err
+	nodePaths := []string{
+		filepath.Join(os.Getenv("HOME"), ".9router", "runtime", "node_modules"),
+		"/home/webserver-01/.9router/runtime/node_modules",
+		filepath.Join(appDir, "node_modules"),
+		"/usr/lib/node_modules/9router/app/node_modules",
+	}
+	if existing := os.Getenv("NODE_PATH"); existing != "" {
+		nodePaths = append(nodePaths, existing)
 	}
 
-	checkURL := fmt.Sprintf("http://127.0.0.1:%d/api/version", internalPort)
-	ready := false
-	for i := 0; i < 40; i++ {
-		time.Sleep(500 * time.Millisecond)
-		resp, err := http.Get(checkURL)
-		if err == nil {
-			_ = resp.Body.Close()
-			if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusTemporaryRedirect {
-				ready = true
-				break
-			}
+	var validPaths []string
+	for _, p := range nodePaths {
+		if fi, err := os.Stat(p); err == nil && fi.IsDir() {
+			validPaths = append(validPaths, p)
 		}
 	}
 
-	if !ready {
-		log.Printf("Warning: Next.js internal process on port %d did not respond to healthcheck within 20s, continuing anyway...", internalPort)
-	} else {
-		log.Printf("Next.js internal UI process is ready on port %d", internalPort)
+	args := []string{
+		"--dns-result-order=ipv4first",
+		"--max-old-space-size=4096",
+		serverJs,
 	}
 
-	return cmd, nil
+	cmd := exec.CommandContext(ctx, "node", args...)
+	cmd.Dir = appDir
+
+	env := append(os.Environ(),
+		fmt.Sprintf("PORT=%d", internalPort),
+		"HOSTNAME=127.0.0.1",
+		"NODE_ENV=production",
+	)
+	if len(validPaths) > 0 {
+		env = append(env, fmt.Sprintf("NODE_PATH=%s", strings.Join(validPaths, string(os.PathListSeparator))))
+	}
+	cmd.Env = env
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	return cmd, appDir, nil
+}
+
+func superviseNextJs(ctx context.Context, internalPort int) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		cmd, _, err := createNextJsCmd(ctx, internalPort)
+		if err != nil {
+			log.Printf("Internal Next.js config error: %v, retrying in 3s...", err)
+			time.Sleep(3 * time.Second)
+			continue
+		}
+
+		if err := cmd.Start(); err != nil {
+			log.Printf("Failed to spawn internal Next.js: %v, retrying in 3s...", err)
+			time.Sleep(3 * time.Second)
+			continue
+		}
+
+		log.Printf("Internal Next.js process running (PID: %d) on port %d", cmd.Process.Pid, internalPort)
+		_ = cmd.Wait()
+
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		log.Printf("Internal Next.js process on port %d exited. Restarting in 1s...", internalPort)
+		time.Sleep(1 * time.Second)
+	}
 }
 
 func main() {
@@ -128,16 +169,28 @@ func main() {
 		backendURL = fmt.Sprintf("http://127.0.0.1:%d", internalPort)
 		_ = os.Setenv("NEXT_BACKEND_URL", backendURL)
 
-		log.Printf("Spawning internal Next.js process on ephemeral port %d...", internalPort)
-		cmd, err := startNextJsProcess(ctx, internalPort)
-		if err != nil {
-			log.Fatalf("Failed to spawn internal Next.js server: %v", err)
-		}
-		defer func() {
-			if cmd.Process != nil {
-				_ = cmd.Process.Kill()
+		log.Printf("Spawning supervised Next.js process on ephemeral port %d...", internalPort)
+		go superviseNextJs(ctx, internalPort)
+
+		checkURL := fmt.Sprintf("http://127.0.0.1:%d/api/version", internalPort)
+		ready := false
+		for i := 0; i < 40; i++ {
+			time.Sleep(500 * time.Millisecond)
+			resp, err := http.Get(checkURL)
+			if err == nil {
+				_ = resp.Body.Close()
+				if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusTemporaryRedirect {
+					ready = true
+					break
+				}
 			}
-		}()
+		}
+
+		if !ready {
+			log.Printf("Warning: Next.js internal process on port %d did not respond to healthcheck within 20s, continuing with fallback available...", internalPort)
+		} else {
+			log.Printf("Next.js internal UI process is ready on port %d", internalPort)
+		}
 	}
 
 	r := chi.NewRouter()
