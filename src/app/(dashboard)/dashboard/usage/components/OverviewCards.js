@@ -172,9 +172,6 @@ export default function OverviewCards({ stats }) {
         >
           {fmtIdr(idrCost)}
         </span>
-        <span className="text-[10px] text-text-muted">
-          Estimated, not actual billing
-        </span>
       </Card>
     </div>
   );

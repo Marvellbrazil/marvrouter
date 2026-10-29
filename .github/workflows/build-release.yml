@@ -1,0 +1,99 @@
+name: Build marvrouter release
+
+on:
+  push:
+    branches: [master]
+    paths-ignore:
+      - "docs/**"
+      - "*.md"
+      - ".github/dependabot.yml"
+      - ".github/issue-assets/**"
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish to the fork-releases GitHub Release"
+        required: false
+        default: true
+        type: boolean
+
+concurrency:
+  group: marvrouter-release-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build app + gateways (linux/arm64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Install dependencies
+        run: |
+          npm ci --no-audit --no-fund
+          npm ci --prefix cli --no-audit --no-fund
+
+      - name: Build CLI app (Next.js standalone bundle)
+        run: node cli/scripts/build-cli.js
+
+      - name: Build gateway (linux/arm64)
+        working-directory: gateway
+        env:
+          GOOS: linux
+          GOARCH: arm64
+          CGO_ENABLED: 0
+        run: go build -trimpath -ldflags="-s -w" -o ../dist/9router-gateway .
+
+      - name: Build front proxy (linux/arm64)
+        working-directory: front
+        env:
+          GOOS: linux
+          GOARCH: arm64
+          CGO_ENABLED: 0
+        run: go build -trimpath -ldflags="-s -w" -o ../dist/marvrouter-front .
+
+      - name: Pack artifacts
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          mkdir -p dist/app
+          tar -czf "dist/marvrouter-app-$VERSION.tar.gz" -C cli app
+          tar -czf dist/marvrouter-front.tar.gz -C dist marvrouter-front
+          tar -czf dist/marvrouter-gateway.tar.gz -C dist 9router-gateway
+          {
+            echo "MARV_VERSION=$VERSION"
+            echo "BUILD_SHA=$(git rev-parse --short HEAD)"
+            echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } >> "$GITHUB_ENV"
+          echo "$VERSION" > dist/version.txt
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: marvrouter-${{ env.MARV_VERSION }}
+          path: |
+            dist/*.tar.gz
+            dist/version.txt
+
+      - name: Publish GitHub Release
+        if: github.event_name == 'push' || inputs.publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: fork-v${{ env.MARV_VERSION }}
+          name: fork-v${{ env.MARV_VERSION }}
+          prerelease: true
+          generate_release_notes: true
+          files: |
+            dist/*.tar.gz
+            dist/version.txt
