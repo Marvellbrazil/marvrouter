@@ -109,15 +109,15 @@ main() {
   if [ "$current_upstream" != "http://127.0.0.1:${GATEWAY_PORT}" ]; then
     local streams
     streams=$(active_streams)
-    if [ "$streams" != "0" ]; then
+    if [ "$streams" -gt 0 ]; then
       log "${streams} active stream(s) on ${GATEWAY_PORT}, waiting to drain..."
       local waited=0
-      while [ "$streams" != "0" ] && [ "$waited" -lt 300 ]; do
+      while [ "$streams" -gt 0 ] && [ "$waited" -lt 300 ]; do
         sleep 5
         waited=$((waited + 5))
         streams=$(active_streams)
       done
-      if [ "$streams" != "0" ]; then
+      if [ "$streams" -gt 0 ]; then
         log "Streams still active after 300s, switching anyway"
       fi
     fi
