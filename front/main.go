@@ -70,7 +70,6 @@ func main() {
 			}
 			req.URL.Scheme = target.Scheme
 			req.URL.Host = target.Host
-			req.Host = req.Host
 			if _, ok := req.Header["User-Agent"]; !ok {
 				req.Header.Set("User-Agent", "")
 			}
