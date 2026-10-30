@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -136,6 +137,33 @@ data: [DONE]
 	}
 	if !strings.Contains(body, "event: message_stop") {
 		t.Fatalf("expected message_stop event, got:\n%s", body)
+	}
+}
+
+func TestConvertAnthropicToOpenAiSendsExplicitStreamFlag(t *testing.T) {
+	cases := []struct {
+		name   string
+		stream bool
+		want   string
+	}{
+		{"non-stream", false, `"stream":false`},
+		{"stream", true, `"stream":true`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ar := &AnthropicRequest{
+				Model:    "claude-sonnet-5",
+				Stream:   tc.stream,
+				Messages: []AnthropicMsg{{Role: "user", Content: "hi"}},
+			}
+			body, err := json.Marshal(convertAnthropicToOpenAi(ar))
+			if err != nil {
+				t.Fatalf("marshal failed: %v", err)
+			}
+			if !strings.Contains(string(body), tc.want) {
+				t.Fatalf("expected %s in %s", tc.want, body)
+			}
+		})
 	}
 }
 

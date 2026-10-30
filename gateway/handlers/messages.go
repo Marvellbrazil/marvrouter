@@ -45,7 +45,7 @@ type OpenAiRequest struct {
 	MaxCompletionTokens *int        `json:"max_completion_tokens,omitempty"`
 	Temperature         *float64    `json:"temperature,omitempty"`
 	TopP                *float64    `json:"top_p,omitempty"`
-	Stream              bool        `json:"stream,omitempty"`
+	Stream              bool        `json:"stream"`
 	Tools               []any       `json:"tools,omitempty"`
 	ToolChoice          any         `json:"tool_choice,omitempty"`
 }
