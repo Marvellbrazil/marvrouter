@@ -46,15 +46,50 @@ jobs:
           fi
           echo "Upstream is $BEHIND commit(s) ahead."
 
+      # Fork-owned styling: keep OUR versions of the UI customizations so an upstream
+      # change to the dashboard can never silently bring the donate button back or
+      # strip the OverviewCards details. Listed files are checked out from OUR side
+      # (HEAD) after the merge, overriding whatever upstream brought in.
       - name: Merge upstream/master
+        id: merge
         if: steps.check.outputs.behind != '0'
-        run: git merge --no-edit upstream/master
+        run: |
+          git merge --no-edit --no-commit upstream/master || true
+          git checkout --ours \
+            src/app/globals.css \
+            "src/app/(dashboard)/dashboard/usage/components/OverviewCards.js" \
+            src/shared/components/Header.js \
+            2>/dev/null || true
+          git add -A
+          if git diff --cached --quiet; then
+            echo "conflict=none" >> "$GITHUB_OUTPUT"
+            git commit -m "chore: merge upstream decolua/9router ($(git rev-parse --short upstream/master))"
+          else
+            git commit -m "chore: merge upstream decolua/9router ($(git rev-parse --short upstream/master))"
+          fi
+
+      - name: Guard fork styling survived the merge
+        if: steps.check.outputs.behind != '0'
+        run: |
+          set -e
+          FAILED=0
+          CSS=$(grep -c 'aria-label.*Donate.*display.*none' src/app/globals.css || true)
+          if [ "$CSS" -lt 1 ]; then
+            echo "::error::donate-hide rule missing from globals.css after merge"
+            FAILED=1
+          fi
+          grep -qi 'idr' "src/app/(dashboard)/dashboard/usage/components/OverviewCards.js" || { echo "::error::IDR detail missing from OverviewCards.js after merge"; FAILED=1; }
+          grep -q 'Estimated, not actual billing' "src/app/(dashboard)/dashboard/usage/components/OverviewCards.js" && { echo "::error::EST. COST disclaimer re-appeared in OverviewCards.js"; FAILED=1; } || true
+          if [ "$FAILED" -ne 0 ]; then
+            exit 1
+          fi
+          echo "Fork styling intact."
 
       - name: Push merge to master
         if: steps.check.outputs.behind != '0'
         run: git push origin master
 
-      - name: Report merge conflict
+      - name: Report sync failure
         if: failure()
         uses: actions/github-script@v9
         with:
@@ -65,13 +100,13 @@ jobs:
               state: "open",
               labels: "upstream-sync",
             });
-            const title = `Upstream sync conflict at ${new Date().toISOString()}`;
+            const title = `Upstream sync issue at ${new Date().toISOString()}`;
             if (issues.length === 0) {
               await github.rest.issues.create({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 title,
                 labels: ["upstream-sync"],
-                body: "Automatic merge of `decolua/9router:master` into `master` failed. Resolve locally and push.",
+                body: "Automatic merge of `decolua/9router:master` into `master` failed or fork styling guard tripped. Check the Actions log; resolve locally and push.",
               });
             }

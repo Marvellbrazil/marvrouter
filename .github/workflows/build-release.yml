@@ -67,16 +67,20 @@ jobs:
       - name: Pack artifacts
         run: |
           VERSION=$(node -p "require('./package.json').version")
+          BUILD_SHA=$(git rev-parse --short HEAD)
           mkdir -p dist/app
           tar -czf "dist/marvrouter-app-$VERSION.tar.gz" -C cli app
           tar -czf dist/marvrouter-front.tar.gz -C dist marvrouter-front
           tar -czf dist/marvrouter-gateway.tar.gz -C dist 9router-gateway
           {
             echo "MARV_VERSION=$VERSION"
-            echo "BUILD_SHA=$(git rev-parse --short HEAD)"
+            echo "BUILD_SHA=$BUILD_SHA"
             echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           } >> "$GITHUB_ENV"
           echo "$VERSION" > dist/version.txt
+          # build metadata the server updater uses for per-commit deploys
+          printf '%s\n' "$BUILD_SHA" > dist/build-info.txt
+          { echo "sha=$BUILD_SHA"; echo "full_sha=$(git rev-parse HEAD)"; echo "version=$VERSION"; echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"; } >> dist/build-info.txt
 
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v7
@@ -97,3 +101,4 @@ jobs:
           files: |
             dist/*.tar.gz
             dist/version.txt
+            dist/build-info.txt
