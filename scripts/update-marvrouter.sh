@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO="Marvellbrazil/marvrouter"
-FRONT_PORT=20140
+FRONT_PORT=20130
 FRONT_UPSTREAM_FILE="${HOME}/.9router/front-upstream"
 PM2_FRONT_NAME="marvrouter-front"
 PM2_GATEWAY_NAME="marvrouter-gateway-v112"
@@ -27,13 +27,6 @@ download() {
   curl -fsSL -o "$2" "$1"
 }
 
-extract() {
-  local tarball="$1" dest="$2"
-  rm -rf "$dest"
-  mkdir -p "$dest"
-  tar -xzf "$tarball" -C "$dest"
-}
-
 wait_for_health() {
   local url="$1" tries="${2:-30}"
   for ((i=1; i<=tries; i++)); do
@@ -48,7 +41,8 @@ wait_for_health() {
 active_streams() {
   if ! command -v lsof >/dev/null 2>&1; then
     log "lsof not available, skipping drain check"
-    return 0
+    echo 0
+    return
   fi
   lsof -iTCP:"${GATEWAY_PORT}" -sTCP:ESTABLISHED 2>/dev/null | grep -c ESTABLISHED || echo 0
 }
@@ -79,15 +73,44 @@ main() {
   log "Downloading gateway..."
   download "https://github.com/${REPO}/releases/download/${tag}/marvrouter-gateway.tar.gz" "$gateway_tarball"
 
-  local app_dir="${release_dir}/app"
-  extract "$app_tarball" "$app_dir"
-  log "App: ${app_dir}"
+  local app_staging="${release_dir}/app-staging"
+  rm -rf "$app_staging"
+  mkdir -p "$app_staging"
+  tar -xzf "$app_tarball" -C "$app_staging"
+  rm -rf "${release_dir}/app-new"
+  if [ -d "${app_staging}/app" ]; then
+    mv "${app_staging}/app" "${release_dir}/app-new"
+  else
+    mv "$app_staging" "${release_dir}/app-new"
+  fi
+  rm -rf "$app_staging"
+  if [ ! -f "${release_dir}/app-new/server.js" ]; then
+    log "ERROR: ${release_dir}/app-new/server.js missing in release artifact"
+    exit 1
+  fi
 
+  local gateway_staging="${release_dir}/gateway-staging"
+  rm -rf "$gateway_staging"
+  mkdir -p "$gateway_staging"
+  tar -xzf "$gateway_tarball" -C "$gateway_staging"
+  if [ ! -f "${gateway_staging}/9router-gateway" ]; then
+    log "ERROR: gateway binary missing in release artifact"
+    exit 1
+  fi
   local gateway_dir="${release_dir}/gateway"
-  extract "$gateway_tarball" "$gateway_dir"
+  rm -rf "$gateway_dir"
+  mv "$gateway_staging" "$gateway_dir"
   local gateway_bin="${gateway_dir}/9router-gateway"
   chmod +x "$gateway_bin"
-  log "Gateway: ${gateway_bin}"
+
+  local app_dir="${release_dir}/app"
+  if [ ! -f "${app_dir}/server.js" ]; then
+    log "Installing new app dir"
+    rm -rf "$app_dir"
+    mv "${release_dir}/app-new" "$app_dir"
+  fi
+
+  ln -sf "${HOME}/9router-0.5.112/node_modules/9router/app/custom-server.js" "${app_dir}/custom-server.js"
 
   log "Stopping old gateway..."
   pm2 delete "$PM2_GATEWAY_NAME" >/dev/null 2>&1 || true
@@ -102,6 +125,21 @@ main() {
     exit 1
   fi
   log "Gateway healthy on ${GATEWAY_PORT}"
+
+  local next_ready=0
+  for ((i=1; i<=30; i++)); do
+    if curl -fsS -m 3 "http://127.0.0.1:${GATEWAY_PORT}/api/version" >/dev/null 2>&1; then
+      next_ready=1
+      break
+    fi
+    sleep 1
+  done
+  if [ "$next_ready" -eq 0 ]; then
+    log "ERROR: Next.js not ready after 30s. Logs:"
+    pm2 logs "$PM2_GATEWAY_NAME" --lines 10 --nostream 2>&1 | tail -n 15
+    exit 1
+  fi
+  log "Next.js ready"
 
   local current_upstream=""
   [ -f "$FRONT_UPSTREAM_FILE" ] && current_upstream=$(cat "$FRONT_UPSTREAM_FILE")
@@ -131,6 +169,8 @@ main() {
   else
     log "Front proxy not responding yet (may need manual start)"
   fi
+
+  rm -rf "${release_dir}/app-new" 2>/dev/null || true
 
   log "Done. Version ${version} is live via front proxy on ${FRONT_PORT}."
   pm2 save >/dev/null 2>&1 || true
