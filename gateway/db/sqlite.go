@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -218,6 +219,48 @@ func GetProviderConnections() ([]Connection, error) {
 	}
 
 	return connections, nil
+}
+
+func GetProviderConnectionByID(id string) (*Connection, error) {
+	db, err := GetDB()
+	if err != nil {
+		return nil, err
+	}
+
+	query := `SELECT id, provider, authType, name, email, priority, isActive, data, createdAt, updatedAt FROM providerConnections WHERE id = ? OR name = ? LIMIT 1`
+	var (
+		conn     Connection
+		isActive int
+		dataRaw  string
+	)
+	err = db.QueryRow(query, id, id).Scan(
+		&conn.ID,
+		&conn.Provider,
+		&conn.AuthType,
+		&conn.Name,
+		&conn.Email,
+		&conn.Priority,
+		&isActive,
+		&dataRaw,
+		&conn.CreatedAt,
+		&conn.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("query error reading provider connection %s: %w", id, err)
+	}
+
+	conn.IsActive = isActive == 1
+	if dataRaw != "" {
+		var parsed map[string]interface{}
+		if err := json.Unmarshal([]byte(dataRaw), &parsed); err == nil {
+			conn.Data = parsed
+		}
+	}
+
+	return &conn, nil
 }
 
 func GetCombos() ([]Combo, error) {

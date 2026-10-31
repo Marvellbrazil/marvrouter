@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"9router-gateway/db"
 )
 
@@ -39,6 +41,13 @@ type QuotaResponse struct {
 	Summary   QuotaSummary `json:"summary"`
 	Quotas    []QuotaRow   `json:"quotas"`
 	Error     string       `json:"error,omitempty"`
+}
+
+type SingleQuotaResponse struct {
+	Success   bool      `json:"success"`
+	Timestamp string    `json:"timestamp"`
+	Quota     *QuotaRow `json:"quota,omitempty"`
+	Error     string    `json:"error,omitempty"`
 }
 
 type SingleQuota struct {
@@ -707,6 +716,105 @@ func Quota(w http.ResponseWriter, r *http.Request) {
 			DepletedConnections: depletedConn,
 		},
 		Quotas: results,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func QuotaByID(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		_ = json.NewEncoder(w).Encode(SingleQuotaResponse{
+			Success: false,
+			Error:   "Method not allowed",
+		})
+		return
+	}
+
+	id := chi.URLParam(r, "uuid")
+	if id == "" {
+		id = chi.URLParam(r, "id")
+	}
+	if id == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(SingleQuotaResponse{
+			Success: false,
+			Error:   "Missing quota ID",
+		})
+		return
+	}
+
+	conn, err := db.GetProviderConnectionByID(id)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(SingleQuotaResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+		return
+	}
+
+	if conn == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(SingleQuotaResponse{
+			Success: false,
+			Error:   "Connection not found",
+		})
+		return
+	}
+
+	client := &http.Client{
+		Timeout: 6 * time.Second,
+	}
+
+	row := QuotaRow{
+		ConnectionID: conn.ID,
+		Provider:     conn.Provider,
+		Email:        conn.Email,
+		AuthType:     conn.AuthType,
+		Details:      make(map[string]interface{}),
+	}
+
+	if conn.Name != nil && *conn.Name != "" {
+		row.Name = *conn.Name
+	} else {
+		row.Name = conn.Provider
+	}
+
+	if row.AuthType == "" {
+		if _, hasKey := conn.Data["apiKey"]; hasKey {
+			row.AuthType = "apikey"
+		} else {
+			row.AuthType = "oauth"
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	usage, fetchErr := fetchProviderUsage(ctx, client, *conn)
+	if fetchErr != nil {
+		row.Status = "error"
+		row.Details = map[string]interface{}{"error": fetchErr.Error()}
+	} else {
+		row.Details = usage
+		status, remPct, resetAt, resetSec := extractQuotasFromMap(usage)
+		row.Status = status
+		row.RemainingPercentage = remPct
+		row.ResetAt = resetAt
+		row.ResetInSeconds = resetSec
+	}
+
+	resp := SingleQuotaResponse{
+		Success:   true,
+		Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+		Quota:     &row,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

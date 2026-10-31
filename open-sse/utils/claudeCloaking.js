@@ -66,11 +66,19 @@ export function cloakClaudeTools(body) {
   // Built-in server tools (web_search_20250305, etc.) carry a `type` and require
   // an exact reserved `name` — never suffix those or Claude rejects the request.
   for (const tool of tools) {
-    if (tool.type) { clientDeclarations.push(tool); continue; }
-    const suffixed = suffix(tool.name);
-    toolNameMap.set(suffixed, tool.name);
-    clientToolNames.add(tool.name);
-    clientDeclarations.push({ ...tool, name: suffixed });
+    if (tool.type && tool.type !== "function") { clientDeclarations.push(tool); continue; }
+    const toolData = tool.function ?? tool;
+    const originalName = toolData.name;
+    const suffixed = suffix(originalName);
+    toolNameMap.set(suffixed, originalName);
+    clientToolNames.add(originalName);
+    const decl = {
+      name: suffixed,
+      description: toolData.description || "",
+      input_schema: toolData.input_schema || toolData.parameters || { type: "object", properties: {}, required: [] },
+    };
+    if (tool.cache_control) decl.cache_control = tool.cache_control;
+    clientDeclarations.push(decl);
   }
 
   // Client tools first, then CC decoy tools (no overlap: client tools all have _cc suffix)

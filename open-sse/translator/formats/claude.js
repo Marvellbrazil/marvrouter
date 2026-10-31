@@ -706,6 +706,23 @@ export function prepareClaudeRequest(body, provider = null, apiKey = null, conne
           const { type, ...rest } = tool;
           return rest;
         });
+        } else {
+      body.tools = body.tools.map(tool => {
+        if (tool.function) {
+          const { type, function: fn, ...rest } = tool;
+          return {
+            ...rest,
+            name: fn.name,
+            description: fn.description || "",
+            input_schema: fn.parameters || { type: "object", properties: {} },
+          };
+        }
+        if (tool.type === "function") {
+          const { type, ...rest } = tool;
+          return rest;
+        }
+        return tool;
+      });
     }
 
     const lastCacheable = lastCacheableToolIndex(body.tools);

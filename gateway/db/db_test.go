@@ -74,6 +74,12 @@ func setupTestDB(t *testing.T) string {
 		t.Fatalf("failed to insert test settings: %v", err)
 	}
 
+	_, err = sqliteDB.Exec("INSERT INTO providerConnections (id, provider, authType, name, isActive, data, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		"conn-uuid-123", "claude", "oauth", "TestConn", 1, `{"apiKey":"sk-test"}`, "2026-10-31", "2026-10-31")
+	if err != nil {
+		t.Fatalf("failed to insert test provider connection: %v", err)
+	}
+
 	return dir
 }
 
@@ -83,6 +89,30 @@ func TestDatabaseOperations(t *testing.T) {
 
 	os.Setenv("DATA_DIR", tempDir)
 	defer os.Unsetenv("DATA_DIR")
+
+	conn, err := db.GetProviderConnectionByID("conn-uuid-123")
+	if err != nil {
+		t.Fatalf("GetProviderConnectionByID failed: %v", err)
+	}
+	if conn == nil || conn.ID != "conn-uuid-123" {
+		t.Fatalf("expected conn-uuid-123, got %v", conn)
+	}
+
+	connByName, err := db.GetProviderConnectionByID("TestConn")
+	if err != nil {
+		t.Fatalf("GetProviderConnectionByID by name failed: %v", err)
+	}
+	if connByName == nil || connByName.ID != "conn-uuid-123" {
+		t.Fatalf("expected conn-uuid-123 by name, got %v", connByName)
+	}
+
+	connMissing, err := db.GetProviderConnectionByID("non-existent-uuid")
+	if err != nil {
+		t.Fatalf("GetProviderConnectionByID missing returned err: %v", err)
+	}
+	if connMissing != nil {
+		t.Fatalf("expected nil for missing connection, got %v", connMissing)
+	}
 
 	valid, err := db.ValidateApiKey("sk-valid-key")
 	if err != nil {
