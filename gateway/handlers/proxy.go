@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 )
 
 func NewChatCompletionsProxy() http.HandlerFunc {
@@ -112,5 +114,59 @@ func NewChatCompletionsProxy() http.HandlerFunc {
 			}
 		}
 		close(done)
+	}
+}
+
+func NewQuotaProxy() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		primary := os.Getenv("NEXT_BACKEND_URL")
+		if primary == "" {
+			primary = "http://127.0.0.1:20128"
+		}
+		fallback := "http://127.0.0.1:20128"
+		if primary == fallback {
+			fallback = "http://127.0.0.1:20127"
+		}
+
+		makeRequest := func(targetHost string) (*http.Response, error) {
+			path := "/api/v1/quota"
+			uuidParam := chi.URLParam(r, "uuid")
+			if uuidParam != "" {
+				path += "/" + uuidParam
+			}
+			upstreamURL := targetHost + path
+			if r.URL.RawQuery != "" {
+				upstreamURL += "?" + r.URL.RawQuery
+			}
+			upstreamReq, reqErr := http.NewRequestWithContext(r.Context(), r.Method, upstreamURL, nil)
+			if reqErr != nil {
+				return nil, reqErr
+			}
+			for k, v := range r.Header {
+				lower := strings.ToLower(k)
+				if lower == "content-length" || lower == "host" || lower == "accept-encoding" {
+					continue
+				}
+				upstreamReq.Header[k] = v
+			}
+			client := &http.Client{Timeout: 30 * time.Second}
+			return client.Do(upstreamReq)
+		}
+
+		resp, err := makeRequest(primary)
+		if err != nil && primary != fallback && fallback != "" {
+			resp, err = makeRequest(fallback)
+		}
+		if err != nil {
+			http.Error(w, "Next.js quota backend unavailable", http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+
+		for k, v := range resp.Header {
+			w.Header()[k] = v
+		}
+		w.WriteHeader(resp.StatusCode)
+		_, _ = io.Copy(w, resp.Body)
 	}
 }

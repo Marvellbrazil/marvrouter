@@ -215,8 +215,8 @@ func main() {
 		v1.Use(middleware.Auth)
 
 		v1.Get("/models", handlers.Models)
-		v1.Get("/quota", handlers.Quota)
-		v1.Get("/quota/{uuid}", handlers.QuotaByID)
+		v1.Get("/quota", handlers.NewQuotaProxy())
+		v1.Get("/quota/{uuid}", handlers.NewQuotaProxy())
 		v1.Post("/chat/completions", handlers.NewChatCompletionsProxy())
 		v1.Post("/messages", handlers.MessagesHandler())
 	})
