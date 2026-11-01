@@ -1,17 +1,17 @@
 <div align="center">
   <img src="./images/9router.png?1" alt="9Router Dashboard" width="800"/>
-  
-  # 9Router - FREE AI Router & Token Saver
-  
-  **Never stop coding. Save 20-40% tokens with RTK + auto-fallback to FREE & cheap AI models.**
-  
-  **Connect All AI Code Tools (Claude Code, Cursor, Antigravity, Copilot, Codex, Gemini, OpenCode, Cline, OpenClaw...) to 40+ AI Providers & 100+ Models.**
-  
-  [![npm](https://img.shields.io/npm/v/9router.svg)](https://www.npmjs.com/package/9router)
-  [![Downloads](https://img.shields.io/npm/dm/9router.svg)](https://www.npmjs.com/package/9router)
-  [![Docker Pulls](https://img.shields.io/docker/pulls/decolua/9router.svg?logo=docker&label=Docker%20pulls)](https://hub.docker.com/r/decolua/9router)
-  [![GHCR](https://img.shields.io/badge/GHCR-decolua%2F9router-blue?logo=github)](https://github.com/decolua/9router/pkgs/container/9router)
-  [![License](https://img.shields.io/npm/l/9router.svg)](https://github.com/decolua/9router/blob/main/LICENSE)
+
+# 9Router - FREE AI Router & Token Saver
+
+**Never stop coding. Save 20-40% tokens with RTK + auto-fallback to FREE & cheap AI models.**
+
+**Connect All AI Code Tools (Claude Code, Cursor, Antigravity, Copilot, Codex, Gemini, OpenCode, Cline, OpenClaw...) to 40+ AI Providers & 100+ Models.**
+
+[![npm](https://img.shields.io/npm/v/9router.svg)](https://www.npmjs.com/package/9router)
+[![Downloads](https://img.shields.io/npm/dm/9router.svg)](https://www.npmjs.com/package/9router)
+[![Docker Pulls](https://img.shields.io/docker/pulls/decolua/9router.svg?logo=docker&label=Docker%20pulls)](https://hub.docker.com/r/decolua/9router)
+[![GHCR](https://img.shields.io/badge/GHCR-decolua%2F9router-blue?logo=github)](https://github.com/decolua/9router/pkgs/container/9router)
+[![License](https://img.shields.io/npm/l/9router.svg)](https://github.com/decolua/9router/blob/main/LICENSE)
 
 <a href="https://trendshift.io/repositories/22628" target="_blank"><img src="https://trendshift.io/api/badge/repositories/22628" alt="decolua%2F9router | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 
@@ -50,14 +50,32 @@
 │  Your CLI   │  (Claude Code, Codex, OpenClaw, Cursor, Cline...)
 │   Tool      │
 └──────┬──────┘
-       │ http://localhost:20128/v1
+       │ http://localhost:20130/v1 (Production via Front Proxy)
+       │ http://localhost:20128/v1 (Local Direct Next.js)
        ↓
 ┌─────────────────────────────────────────────┐
-│           9Router (Smart Router)            │
+│           Front Proxy (Go) - Port 20130     │
+│  • Reads ~/.9router/front-upstream pointer  │
+│  • Hot-swap target without client reconnect │
+└──────┬──────────────────────────────────────┘
+       │ upstream (e.g. http://127.0.0.1:20131)
+       ↓
+┌─────────────────────────────────────────────┐
+│       Go Master Gateway - Port 20131        │
+│  • Process Supervisor (spawns Next.js)      │
+│  • High-performance keep-alive SSE bridge   │
+│  • Unified /v1/quota & /v1/quota/:uuid      │
+│  • /v1/messages native Anthropic shim       │
+└──────┬──────────────────────────────────────┘
+       │ internal ephemeral / static proxy
+       ↓
+┌─────────────────────────────────────────────┐
+│       Next.js Backend & Open-SSE Engine     │
 │  • RTK Token Saver (cut tool_result tokens) │
-│  • Format translation (OpenAI ↔ Claude)     │
-│  • Quota tracking                           │
-│  • Auto token refresh                       │
+│  • Format translation (OpenAI ↔ Claude ↔    │
+│    Codex Responses ↔ Antigravity/Gemini)    │
+│  • Multi-provider OAuth token refresh       │
+│  • SQLite Storage (data.sqlite)             │
 └──────┬──────────────────────────────────────┘
        │
        ├─→ [Tier 1: SUBSCRIPTION] Claude Code, Codex, GitHub Copilot
@@ -131,8 +149,90 @@ PORT=20128 HOSTNAME=0.0.0.0 NEXT_PUBLIC_BASE_URL=http://localhost:20128 npm run 
 
 Default URLs:
 
-- Dashboard: `http://localhost:20128/dashboard`
-- OpenAI-compatible API: `http://localhost:20128/v1`
+- Dashboard: `http://localhost:20128/dashboard` (atau `http://localhost:20130/dashboard` via Front Proxy)
+- OpenAI-compatible API: `http://localhost:20128/v1` (Direct) / `http://localhost:20130/v1` (Front Proxy)
+
+---
+
+## 🚀 Deployment & Production Architecture (marvrouter)
+
+marvrouter dirancang dengan arsitektur **Zero-Downtime Multi-Tier** yang memisahkan frontend, process supervisor, API gateway, dan dynamic router.
+
+### 🏛️ Komponen & Port Mapping
+
+| Komponen                                     | Port                              | Deskripsi                                                                                                                                                                                                                                             |
+| -------------------------------------------- | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Front Proxy (`front/`)**                   | `20130`                           | Reverse proxy Go ultra-ringan sebagai entry point utama client. Membaca target upstream secara dinamis dari file `~/.9router/front-upstream` tanpa memutus koneksi streaming aktif saat rilis baru diterapkan.                                        |
+| **Master Gateway & Supervisor (`gateway/`)** | `20131` _(atau 20130 standalone)_ | Master gateway berbasis Go yang berfungsi ganda sebagai **Process Supervisor**. Mengawasi lifecycle proses Next.js standalone, menangani bridging format native Anthropic (`/v1/messages`), OpenAI (`/v1/chat/completions`), dan unified quota proxy. |
+| **Next.js Backend & Open-SSE (`src/`)**      | Ephemeral / `20128`               | Inti logika perutean, dashboard Next.js, format translation engine (OpenAI, Claude, Responses, Gemini, Antigravity, Kiro), auto token refresh, dan database SQLite.                                                                                   |
+
+---
+
+### 📦 CI/CD Build Pipeline (GitHub Actions)
+
+Workflow otomatis di `.github/workflows/build-release.yml` dipicu saat push ke branch `master`:
+
+1. **Next.js Bundle**: Mengompilasi aplikasi standalone Next.js via script `cli/scripts/build-cli.js`.
+2. **Go Cross-Compilation**: Mengompilasi binary native Linux ARM64 (`GOOS=linux GOARCH=arm64 CGO_ENABLED=0`):
+   - `9router-gateway` (Master Gateway & Supervisor)
+   - `marvrouter-front` (Front Proxy)
+3. **Artifact Packaging**:
+   - `marvrouter-app-{version}.tar.gz`
+   - `marvrouter-gateway.tar.gz`
+   - `marvrouter-front.tar.gz`
+   - Metadata `build-info.txt` (SHA commit, versi, timestamp).
+4. **GitHub Releases**: Mempublikasikan rilis prerelease otomatis dengan tag `fork-v{version}` di repository GitHub.
+
+---
+
+### 🔄 Zero-Downtime Auto-Updater (`scripts/update-marvrouter.sh`)
+
+Script auto-update di server menangani deployment release baru tanpa downtime bagi client yang sedang streaming:
+
+1. **Pemeriksaan Update**: Membandingkan SHA commit saat ini (`~/.build-sha`) dengan release `fork-v*` terbaru di GitHub.
+2. **Staging Terisolasi**: Mengekstrak aplikasi dan binary gateway baru ke direktori isolasi (`~/marvrouter-releases/{version}-{sha}`).
+3. **Staging Gateway Baru**: Menjalankan gateway baru pada port `20131` via PM2 (`marvrouter-gateway-v112`), lalu memverifikasi healthcheck `/api/health` dan `/api/version`.
+4. **Graceful Connection Draining**: Jika ada streaming aktif (`lsof -iTCP:20131`), script menunggu sampai stream selesai (timeout aman 300 detik).
+5. **Atomic Hot-Swap**: Mengarahkan file pointer `~/.9router/front-upstream` ke port gateway yang sudah aktif. Front proxy port `20130` langsung merutekan request baru tanpa me-restart front proxy.
+6. **Pruning**: Membersihkan direktori rilis lama dan menyimpan state PM2 (`pm2 save`).
+
+#### Menyiapkan Cron Auto-Update di Server:
+
+Agar server memeriksa dan memperbarui dirinya otomatis setiap 15 menit:
+
+```bash
+(crontab -l 2>/dev/null | grep -v "update-marvrouter.sh"; echo "*/15 * * * * /home/webserver-01/update-marvrouter.sh >> /home/webserver-01/.9router/update.log 2>&1") | crontab -
+```
+
+---
+
+### 🧪 Menjalankan Mandiri di Server / Development
+
+#### 1. Menjalankan Next.js Backend
+
+```bash
+npm install
+PORT=20128 npm run dev # atau npm run start untuk production
+```
+
+#### 2. Menjalankan Go Master Gateway
+
+```bash
+cd gateway
+export PORT=20131
+export NEXT_BACKEND_URL=http://127.0.0.1:20128
+go run .
+```
+
+#### 3. Menjalankan Go Front Proxy
+
+```bash
+cd front
+export FRONT_PORT=20130
+export UPSTREAM_FILE="$HOME/.9router/front-upstream"
+echo "http://127.0.0.1:20131" > "$UPSTREAM_FILE"
+go run .
+```
 
 ---
 
@@ -496,11 +596,11 @@ faster-whisper, Speaches, Kokoro-FastAPI, openedai-speech, llama.cpp/llama-serve
 vLLM, Infinity, text-embeddings-inference, or anything else that speaks the OpenAI
 shape.
 
-| Provider | Endpoint used | Typical server |
-| --- | --- | --- |
-| **Self-hosted STT** | `/v1/audio/transcriptions` | whisper.cpp, faster-whisper |
-| **Self-hosted TTS** | `/v1/audio/speech` | Kokoro-FastAPI, openedai-speech |
-| **Self-hosted Embedding** | `/v1/embeddings` | llama-server, vLLM, Infinity |
+| Provider                  | Endpoint used              | Typical server                  |
+| ------------------------- | -------------------------- | ------------------------------- |
+| **Self-hosted STT**       | `/v1/audio/transcriptions` | whisper.cpp, faster-whisper     |
+| **Self-hosted TTS**       | `/v1/audio/speech`         | Kokoro-FastAPI, openedai-speech |
+| **Self-hosted Embedding** | `/v1/embeddings`           | llama-server, vLLM, Infinity    |
 
 Every other speech provider is a named cloud service with a fixed endpoint. These
 three read their address from **each connection**, so one provider can front
@@ -508,11 +608,11 @@ several machines and load-balance across them like any other.
 
 Set it on the connection as `providerSpecificData.baseUrl`:
 
-| Provider | Give it | Result |
-| --- | --- | --- |
-| Self-hosted STT | the full URL — `http://host:8080/v1/audio/transcriptions` | used as-is |
-| Self-hosted TTS | the server root — `http://host:8880` | `+ /v1/audio/speech` |
-| Self-hosted Embedding | the **OpenAI base**, `/v1` included — `http://host:8080/v1` | `+ /embeddings` |
+| Provider              | Give it                                                     | Result               |
+| --------------------- | ----------------------------------------------------------- | -------------------- |
+| Self-hosted STT       | the full URL — `http://host:8080/v1/audio/transcriptions`   | used as-is           |
+| Self-hosted TTS       | the server root — `http://host:8880`                        | `+ /v1/audio/speech` |
+| Self-hosted Embedding | the **OpenAI base**, `/v1` included — `http://host:8080/v1` | `+ /embeddings`      |
 
 > **Mind the `/v1` on embeddings.** The adapter appends `/embeddings`, so
 > `http://host:8080` resolves to `http://host:8080/embeddings` and misses the
@@ -714,19 +814,19 @@ Seamless translation between formats:
 
 ## 💰 Pricing at a Glance
 
-| Tier                | Provider              | Cost         | Quota Reset      | Best For                                |
-| ------------------- | --------------------- | ------------ | ---------------- | --------------------------------------- |
-| **🚀 TOKEN SAVER**  | **RTK (built-in)**    | **FREE**     | Always on        | **Save 20-40% tokens on EVERY request** |
-| **💳 SUBSCRIPTION** | Claude Code (Pro/Max) | $20-200/mo   | 5h + weekly      | Already subscribed                      |
-|                     | Codex (Plus/Pro)      | $20-200/mo   | 5h + weekly      | OpenAI users                            |
-|                     | GitHub Copilot        | $10-19/mo    | Monthly          | GitHub users                            |
-|                     | Cursor IDE            | $20/mo       | Monthly          | Cursor users                            |
-| **💰 CHEAP**        | GLM-5.1 / GLM-4.7     | $0.6/1M      | Daily 10AM       | Budget backup                           |
-|                     | MiniMax M2.7          | $0.2/1M      | 5-hour rolling   | Cheapest option                         |
-|                     | Kimi K2.5             | $9/mo flat   | 10M tokens/mo    | Predictable cost                        |
- | **🆓 FREE**         | Kiro AI               | $0           | 50 credits/mo    | Claude 4.5 + GLM-5 + MiniMax free (paid tiers above) |
- |                     | OpenCode Free         | $0           | Varies*          | No auth, auto-fetch models (list changes over time) |
- |                     | Vertex AI             | $300 credits | New GCP accounts | Gemini 3 Pro + DeepSeek + GLM-5 (use Vertex AI Studio endpoint for free credits) |
+| Tier                | Provider              | Cost         | Quota Reset      | Best For                                                                         |
+| ------------------- | --------------------- | ------------ | ---------------- | -------------------------------------------------------------------------------- |
+| **🚀 TOKEN SAVER**  | **RTK (built-in)**    | **FREE**     | Always on        | **Save 20-40% tokens on EVERY request**                                          |
+| **💳 SUBSCRIPTION** | Claude Code (Pro/Max) | $20-200/mo   | 5h + weekly      | Already subscribed                                                               |
+|                     | Codex (Plus/Pro)      | $20-200/mo   | 5h + weekly      | OpenAI users                                                                     |
+|                     | GitHub Copilot        | $10-19/mo    | Monthly          | GitHub users                                                                     |
+|                     | Cursor IDE            | $20/mo       | Monthly          | Cursor users                                                                     |
+| **💰 CHEAP**        | GLM-5.1 / GLM-4.7     | $0.6/1M      | Daily 10AM       | Budget backup                                                                    |
+|                     | MiniMax M2.7          | $0.2/1M      | 5-hour rolling   | Cheapest option                                                                  |
+|                     | Kimi K2.5             | $9/mo flat   | 10M tokens/mo    | Predictable cost                                                                 |
+| **🆓 FREE**         | Kiro AI               | $0           | 50 credits/mo    | Claude 4.5 + GLM-5 + MiniMax free (paid tiers above)                             |
+|                     | OpenCode Free         | $0           | Varies*          | No auth, auto-fetch models (list changes over time)                              |
+|                     | Vertex AI             | $300 credits | New GCP accounts | Gemini 3 Pro + DeepSeek + GLM-5 (use Vertex AI Studio endpoint for free credits) |
 
 **💡 Pro Tip:** RTK + Kiro AI + OpenCode Free combo = **$0 cost + 20-40% token savings**!
 
@@ -1514,6 +1614,17 @@ GET http://localhost:20128/v1/models
 Authorization: Bearer your-api-key
 
 → Returns all models + combos in OpenAI format
+```
+
+### Unified Quota Tracker
+
+```bash
+GET http://localhost:20130/v1/quota
+# atau per UUID koneksi:
+GET http://localhost:20130/v1/quota/:uuid
+Authorization: Bearer your-api-key
+
+→ Mengembalikan kuota terpadu seluruh provider aktif (Codex, Claude, Antigravity, Kiro, CommandCode, Ollama, CodeBuddy, GitHub, dll.)
 ```
 
 ## 📧 Support
