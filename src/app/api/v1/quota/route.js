@@ -18,7 +18,7 @@ import {
 } from "@/shared/constants/providers";
 import { refreshAndUpdateCredentials } from "@/app/api/usage/[connectionId]/route.js";
 
-const CORS_HEADERS = {
+export const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
   "Access-Control-Allow-Headers": "Authorization, Content-Type, x-api-key",
@@ -31,7 +31,7 @@ export async function OPTIONS() {
   });
 }
 
-async function isAuthorized(request) {
+export async function isAuthorized(request) {
   const authHeader =
     request.headers.get("authorization") ||
     request.headers.get("Authorization");
@@ -196,7 +196,7 @@ function extractConnectionQuota(conn, usage) {
   };
 }
 
-async function resolveConnectionQuota(conn) {
+export async function resolveConnectionQuota(conn) {
   const connectionId = conn.id;
   const provider = conn.provider;
   const name =
