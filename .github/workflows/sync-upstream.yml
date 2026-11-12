@@ -11,8 +11,6 @@ concurrency:
 
 permissions:
   contents: write
-  pull-requests: write
-  issues: write
 
 jobs:
   sync:
@@ -73,7 +71,7 @@ jobs:
         run: |
           set -e
           FAILED=0
-          CSS=$(grep -c 'aria-label.*Donate.*display.*none' src/app/globals.css || true)
+          CSS=$(grep -Eiqs 'button\[aria-label="Donate"\][^{]*\{[^}]*display:[[:space:]]*none[[:space:]]*!important' src/app/globals.css && echo 1 || echo 0)
           if [ "$CSS" -lt 1 ]; then
             echo "::error::donate-hide rule missing from globals.css after merge"
             FAILED=1
@@ -91,22 +89,12 @@ jobs:
 
       - name: Report sync failure
         if: failure()
-        uses: actions/github-script@v9
-        with:
-          script: |
-            const { data: issues } = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: "open",
-              labels: "upstream-sync",
-            });
-            const title = `Upstream sync issue at ${new Date().toISOString()}`;
-            if (issues.length === 0) {
-              await github.rest.issues.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                title,
-                labels: ["upstream-sync"],
-                body: "Automatic merge of `decolua/9router:master` into `master` failed or fork styling guard tripped. Check the Actions log; resolve locally and push.",
-              });
-            }
+        run: |
+          {
+            echo "## Upstream sync failed"
+            echo
+            echo "Run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "Commit: ${GITHUB_SHA}"
+            echo
+            echo "Inspect the failed step above, fix locally, and dispatch this workflow again."
+          } >> "$GITHUB_STEP_SUMMARY"
