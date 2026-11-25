@@ -14,15 +14,43 @@ CURRENT_LINK="${RELEASES_ROOT}/current"
 log() { printf '[update-marvrouter] %s\n' "$*"; }
 
 latest_tag() {
-  curl -fsSL "https://api.github.com/repos/${REPO}/releases" \
-    | python3 -c '
+  local releases_json tag
+  if releases_json=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases" 2>/dev/null); then
+    if tag=$(printf '%s\n' "$releases_json" | python3 -c '
 import sys, json
 for rel in json.load(sys.stdin):
     tag = rel.get("tag_name", "")
     if tag.startswith("fork-v") and not rel.get("draft"):
         print(tag)
         sys.exit(0)
-sys.exit("no fork release found")'
+sys.exit("no fork release found")' 2>/dev/null); then
+      printf '%s\n' "$tag"
+      return 0
+    fi
+  fi
+
+  log "GitHub Releases API unavailable; trying releases feed."
+  local releases_feed
+  releases_feed=$(curl -fsSL "https://github.com/${REPO}/releases.atom") || {
+    log "ERROR: unable to retrieve GitHub releases from API or feed."
+    return 1
+  }
+  tag=$(printf '%s\n' "$releases_feed" | python3 -c '
+import sys, xml.etree.ElementTree as ET
+root = ET.parse(sys.stdin).getroot()
+ns = {"atom": "http://www.w3.org/2005/Atom"}
+for entry in root.findall("atom:entry", ns):
+    link = entry.find("atom:link", ns)
+    if link is not None:
+        tag = link.get("href", "").rsplit("/", 1)[-1]
+        if tag.startswith("fork-v"):
+            print(tag)
+            sys.exit(0)
+sys.exit("no fork release found in releases feed")' 2>/dev/null) || {
+    log "ERROR: no fork release found in GitHub releases feed."
+    return 1
+  }
+  printf '%s\n' "$tag"
 }
 
 download() { curl -fsSL -o "$2" "$1"; }
