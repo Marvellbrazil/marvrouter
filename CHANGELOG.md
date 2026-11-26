@@ -1,8 +1,3 @@
-# Unreleased
-
-## Fixes
-- **Updater**: fall back to the GitHub releases feed when the Releases API is unavailable, and report a clean error if both sources fail.
-
 # v0.5.123 (2026-11-22)
 
 ## Features

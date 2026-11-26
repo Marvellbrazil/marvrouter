@@ -11,12 +11,16 @@ concurrency:
 
 permissions:
   contents: write
+  issues: write
+  actions: write
 
 jobs:
   sync:
     name: Merge upstream into master
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -33,68 +37,45 @@ jobs:
       - name: Fetch upstream
         run: git fetch upstream master
 
-      - name: Check for new upstream commits
-        id: check
-        run: |
-          BEHIND=$(git rev-list --count HEAD..upstream/master)
-          echo "behind=$BEHIND" >> "$GITHUB_OUTPUT"
-          if [ "$BEHIND" -eq 0 ]; then
-            echo "Already up to date."
-            exit 0
-          fi
-          echo "Upstream is $BEHIND commit(s) ahead."
-
-      # Fork-owned styling: keep OUR versions of the UI customizations so an upstream
-      # change to the dashboard can never silently bring the donate button back or
-      # strip the OverviewCards details. Listed files are checked out from OUR side
-      # (HEAD) after the merge, overriding whatever upstream brought in.
       - name: Merge upstream/master
-        id: merge
-        if: steps.check.outputs.behind != '0'
-        run: |
-          git merge --no-edit --no-commit upstream/master || true
-          git checkout --ours \
-            src/app/globals.css \
-            "src/app/(dashboard)/dashboard/usage/components/OverviewCards.js" \
-            src/shared/components/Header.js \
-            2>/dev/null || true
-          git add -A
-          if git diff --cached --quiet; then
-            echo "conflict=none" >> "$GITHUB_OUTPUT"
-            git commit -m "chore: merge upstream decolua/9router ($(git rev-parse --short upstream/master))"
-          else
-            git commit -m "chore: merge upstream decolua/9router ($(git rev-parse --short upstream/master))"
-          fi
-
-      - name: Guard fork styling survived the merge
-        if: steps.check.outputs.behind != '0'
-        run: |
-          set -e
-          FAILED=0
-          CSS=$(grep -Eiqs 'button\[aria-label="Donate"\][^{]*\{[^}]*display:[[:space:]]*none[[:space:]]*!important' src/app/globals.css && echo 1 || echo 0)
-          if [ "$CSS" -lt 1 ]; then
-            echo "::error::donate-hide rule missing from globals.css after merge"
-            FAILED=1
-          fi
-          grep -qi 'idr' "src/app/(dashboard)/dashboard/usage/components/OverviewCards.js" || { echo "::error::IDR detail missing from OverviewCards.js after merge"; FAILED=1; }
-          grep -q 'Estimated, not actual billing' "src/app/(dashboard)/dashboard/usage/components/OverviewCards.js" && { echo "::error::EST. COST disclaimer re-appeared in OverviewCards.js"; FAILED=1; } || true
-          if [ "$FAILED" -ne 0 ]; then
-            exit 1
-          fi
-          echo "Fork styling intact."
+        id: sync
+        run: bash scripts/sync-upstream.sh
 
       - name: Push merge to master
-        if: steps.check.outputs.behind != '0'
-        run: git push origin master
+        if: steps.sync.outputs.status == 'merged'
+        run: git push origin HEAD:master
+
+      # A push made with GITHUB_TOKEN never triggers other workflows, so the release
+      # build is dispatched explicitly, and only when upstream actually shipped a new version.
+      - name: Build release for the new version
+        if: steps.sync.outputs.status == 'merged' && steps.sync.outputs.version_changed == 'true'
+        run: gh workflow run build-release.yml --ref master
+
+      - name: Close sync issues after recovery
+        if: success()
+        run: |
+          gh issue list --label upstream-sync --state open --json number --jq '.[].number' | while read -r number; do
+            gh issue close "$number" --comment "Sync recovered: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          done
 
       - name: Report sync failure
         if: failure()
+        env:
+          REASON: ${{ steps.sync.outputs.reason }}
         run: |
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          BODY="Upstream sync failed: ${REASON:-see the run log}
+
+          Run: ${RUN_URL}
+
+          No changes were pushed, so master is still on its last good commit. Fix the cause, then run the Sync upstream workflow again. Later failures stay quiet while this issue is open, and it closes itself once a sync succeeds."
           {
             echo "## Upstream sync failed"
             echo
-            echo "Run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-            echo "Commit: ${GITHUB_SHA}"
+            echo "${REASON:-see the run log}"
             echo
-            echo "Inspect the failed step above, fix locally, and dispatch this workflow again."
+            echo "Run: ${RUN_URL}"
           } >> "$GITHUB_STEP_SUMMARY"
+          if [ -z "$(gh issue list --label upstream-sync --state open --json number --jq '.[0].number // empty')" ]; then
+            gh issue create --label upstream-sync --title "Upstream sync is failing" --body "$BODY"
+          fi
